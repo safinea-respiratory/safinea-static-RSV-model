@@ -1,0 +1,67 @@
+---
+# ============================================================ #
+# Configuration for the STATIC (sampling-based) RSV model
+#
+# Loaded by launch.R, which produces the
+# RespiCompass 2025/2026 submission via fixed-margin Monte-Carlo
+# sampling of the observed weekly + age-distributed RSV data, plus a
+# vaccine coverage x effectiveness x waning correction per scenario.
+#
+# This file is read directly by launch.R.
+# ============================================================ #
+
+# ---- Vaccine effectiveness (Immunisation Efficacy) ----
+# A per-Monte-Carlo-sample draw is made from a normal distribution.
+vacc_IE:
+  mean: 0.87 # Values are given by RespiCompass 2025/26 RSV round
+  sd:   0.026
+
+# ---- Vaccine waning by RespiCompass reporting band ----
+# Relative to initial value
+# 0 = no protection, 1 = equivalent to full initial protection.
+# Source: mean of RespiCompass waning curves
+# (https://github.com/european-modelling-hubs/RespiCompass/blob/main/auxiliary-data/waning/waning_curves.csv).
+waning_by_band:
+  "0-2mo":  0.97
+  "3-5mo":  0.72
+  "6-11mo": 0.30
+  "1-4y":   0.00
+  "5-64y":  0.00
+  "65+y":   0.00
+
+# ---- Vaccination windows ----
+vaccination_start: ["2024-09-01", "2025-09-01"]
+vaccination_end:   ["2025-02-28", "2026-02-28"]
+
+# ---- Scenario uptake ----
+# baseline_uptake reflects the actually-administered RSV vaccination
+baseline_uptake: 0.83
+
+# Per-scenario vaccine uptake in the eligible group(s)
+scenarios:
+  no_vacc:   0.00
+  high_vacc: 0.95
+
+# ---- Submission output ----
+# Round identifier and anchor date used to compute the `horizon`
+# column (weeks since the anchor) in the RespiCompass submission file.
+round_id: "2025_2026_1_RSV_IRL"
+submission_horizon_anchor: "2025-09-07"
+
+# ---- Births data ----
+# Real births data is only available pre-2024 at time of writing.
+# The static model projects the 2023 monthly pattern forward to
+# 2024-2026 as a placeholder (assumes year-on-year stability in the
+# seasonal birth pattern). Replace with projected births when they
+# become available.
+# TODO: replace with real / projected birth series for 2024-2026.
+births_data_cutoff: "2024-01-01"
+births_project_years: [2024, 2025, 2026]
+
+# ---- Monte-Carlo settings ----
+# Number of draws per time point and RNG seed for reproducibility.
+# Data start date filters out all earlier data points
+n_draws:    100
+mc_seed:    123
+data_start: "2023-06-01"
+

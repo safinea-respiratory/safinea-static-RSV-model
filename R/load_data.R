@@ -119,71 +119,82 @@ load_config <- function(path = "config/static_model.yaml") {
 }
 
 
-# Load observed RSV weekly admissions and the monthly age-split proportions.
+# Load observed RSV weekly admissions and the age-stratified burden.
+#
+# Both files come from RespiCompass target-data and cover 28 EU/EEA
+# countries; cfg$country selects one. Counts are used directly - unlike
+# the previous national inputs, the burden file gives absolute
+# admissions per band rather than proportions, so no reconstruction from
+# proportions is needed.
 #
 # Returns a named list:
 #   $admissions — weekly aggregate counts
-#                 (target_end_date, season_name, weekly_rsv_hospitalisations)
-#   $burden     — per-age 4-week counts
+#                 (target_end_date, weekly_rsv_hospitalisations)
+#   $burden     — per-age counts over the burden window
 #                 (burden_start_date, burden_end_date, age_group,
 #                  total_rsv_hospitalisations)
 #
-# The burden table is derived by multiplying the raw monthly age
-# proportions by the weekly counts aggregated over the matching 4-week
-# window. Age-group labels come from the data itself; the only
-# transformation applied is the optional alias map from the config.
+# NOTE ON TIME RESOLUTION: the burden file gives ONE total per age band
+# for the whole season, so the fixed-margin sampler draws a single
+# (weeks x ages) table per season rather than one per 4-week period.
+# The age mix is therefore constrained only across the season as a
+# whole, not within it. That is an honest reflection of what this data
+# constrains, but it produces wider per-week age uncertainty than
+# period-level age data would.
+#
+# Age-group labels come from the data itself; the only transformation
+# applied is the optional alias map from the config.
 load_epidemiological_data <- function(
     cfg,
-    weekly_file  = "data/epidemiological/RSV_weekly_counts.csv",
-    monthly_file = "data/epidemiological/RSV_monthly_prop_age.csv") {
+    weekly_file = "data/epidemiological/hospitaladmissions.csv",
+    burden_file = "data/epidemiological/hospitalburden_agegroups.csv") {
 
-  fmt_weekly  <- cfg$input_date_formats$weekly_counts
-  fmt_monthly <- cfg$input_date_formats$monthly_age
+  fmt_weekly <- cfg$input_date_formats$weekly_counts
+  fmt_burden <- cfg$input_date_formats$burden_agegroups
 
-  admissions <- read.csv(weekly_file) %>%
-    mutate(target_end_date             = parse_dates_strict(
-                                           date_wk_floor, fmt_weekly,
-                                           "RSV_weekly_counts.csv$date_wk_floor") + 6,
-           weekly_rsv_hospitalisations = case_counts) %>%
-    select(target_end_date, season_name, weekly_rsv_hospitalisations) %>%
+  raw_adm <- read.csv(weekly_file)
+  raw_bur <- read.csv(burden_file)
+
+  check_country_present(cfg$country, raw_adm$country, basename(weekly_file))
+  check_country_present(cfg$country, raw_bur$country, basename(burden_file))
+
+  admissions <- raw_adm %>%
+    filter(country == cfg$country) %>%
+    mutate(target_end_date = parse_dates_strict(
+                               target_end_date, fmt_weekly,
+                               "hospitaladmissions.csv$target_end_date")) %>%
+    select(target_end_date, weekly_rsv_hospitalisations) %>%
+    arrange(target_end_date) %>%
     setDT()
 
-  raw_age <- read.csv(monthly_file, fileEncoding = "UTF-8-BOM") %>%
-    mutate(.period_date = parse_dates_strict(
-                            date_28days_floor, fmt_monthly,
-                            "RSV_monthly_prop_age.csv$date_28days_floor"))
-
-  # 4-week period boundaries derived from the date_28days_floor column
-  periods <- raw_age %>%
-    distinct(.period_date) %>%
-    mutate(period_start = .period_date + 6,
-           period_end   = .period_date + 6 + weeks(3))
-
-  # Aggregate weekly counts within each 4-week window so proportions can
-  # be applied to recover per-age-band counts
-  weekly_4wk <- admissions %>%
-    crossing(periods) %>%
-    filter(target_end_date >= period_start & target_end_date <= period_end) %>%
-    group_by(period_start) %>%
-    summarise(total_4wk = sum(weekly_rsv_hospitalisations, na.rm = TRUE),
-              .groups = "drop") %>%
-    rename(date = period_start)
-
-  burden <- raw_age %>%
-    mutate(date      = .period_date + 6,
-           age_group = apply_age_aliases(age_gp_modelling, cfg$age_group_aliases),
-           value     = NA) %>%
-    select(date, age_group, value, proportion) %>%
-    left_join(weekly_4wk, by = "date") %>%
-    mutate(value                      = total_4wk * proportion,
-           burden_start_date          = date,
-           burden_end_date            = date + weeks(3),
-           total_rsv_hospitalisations = value) %>%
-    filter(!is.na(value)) %>%
-    select(burden_start_date, burden_end_date, age_group, total_rsv_hospitalisations) %>%
+  burden <- raw_bur %>%
+    filter(country == cfg$country) %>%
+    mutate(burden_start_date = parse_dates_strict(
+                                 start_date, fmt_burden,
+                                 "hospitalburden_agegroups.csv$start_date"),
+           burden_end_date   = parse_dates_strict(
+                                 end_date, fmt_burden,
+                                 "hospitalburden_agegroups.csv$end_date"),
+           age_group         = apply_age_aliases(age_group,
+                                                 cfg$age_group_aliases)) %>%
+    select(burden_start_date, burden_end_date, age_group,
+           total_rsv_hospitalisations) %>%
     setDT()
 
   list(admissions = admissions, burden = burden)
+}
+
+
+# Error with the available options listed if the configured country is
+# absent from an input file.
+check_country_present <- function(country, column, file_label) {
+  available <- sort(unique(column))
+  if (!country %in% available) {
+    stop("Country \"", country, "\" not found in ", file_label, ".",
+         "\n  Available: ", paste(available, collapse = ", "),
+         call. = FALSE)
+  }
+  invisible(TRUE)
 }
 
 

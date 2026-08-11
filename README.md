@@ -1,15 +1,16 @@
-# Static RSV Model — RespiCompass 2025/2026
+# Static RSV Model — RespiCompass 2026/2027
 
 A sampling-based model that produces RSV hospitalisation projections under
-user-specified vaccination scenarios. It was developed as part of the 2025/2026
+user-specified vaccination scenarios. It was developed as part of the 2026/2027
 [RespiCompass](https://github.com/european-modelling-hubs/RespiCompass) modelling round on RSV interventions.
 
 ---
 
 ## How it works
 
-1. **Load** observed weekly RSV admissions and monthly age-distribution proportions.
-2. **Sample** — for each 4-week burden period, draw `n_draws` contingency tables
+1. **Load** observed weekly RSV admissions and the age-stratified seasonal burden
+   (both from RespiCompass target-data, 28 EU/EEA countries; `country` selects one).
+2. **Sample** — for each burden window, draw `n_draws` contingency tables
    of (week × age group) admissions that preserve both marginals exactly
    (`stats::r2dtable`). This captures the uncertainty in how weekly totals
    distribute across age bands.
@@ -56,7 +57,7 @@ wiring it in (step 4) leaves the surrounding algebra untouched.
 ## Age bands come from the data
 
 The model does not define age bands. Whatever labels appear in
-`RSV_monthly_prop_age.csv` become the bands, and flow through to the
+`hospitalburden_agegroups.csv` become the bands, and flow through to the
 submission's `pop_group`. The config only *references* them — any band named
 in the config but absent from the data is a hard error at load, as is any
 overlap between the two programmes. This matters because the joins involved
@@ -72,12 +73,12 @@ config/
   static_model.yaml               # all tunable parameters
 data/
   epidemiological/
-    RSV_weekly_counts.csv         # observed weekly RSV admissions
-    RSV_monthly_prop_age.csv      # monthly age-split proportions (defines age bands)
+    hospitaladmissions.csv        # weekly RSV admissions, all ages
+    hospitalburden_agegroups.csv  # seasonal age-stratified burden (defines age bands)
   population/
     country_monthly_births.csv    # monthly births
   vaccine/
-    waning_curves.csv             # adult VE ensemble, 500 curves (from RespiCompass)
+    waning_curves.csv             # adult VE ensemble, 500 curves
 R/
   utils.R                         # round_preserve_sum
   validate.R                      # fail-fast config/data consistency checks
@@ -90,9 +91,16 @@ R/
   plots.R                         # diagnostic plots
 ```
 
-`data/vaccine/waning_curves.csv` is vendored from RespiCompass — see
-[data/vaccine/README.md](data/vaccine/README.md) for provenance. It is the only
-external dataset in the repo; nothing is fetched over the network at runtime.
+The epidemiological and vaccine datasets are all vendored from RespiCompass —
+see [data/epidemiological/README.md](data/epidemiological/README.md) and
+[data/vaccine/README.md](data/vaccine/README.md) for provenance and commit
+hashes. Nothing is fetched over the network at runtime.
+
+> **Time resolution caveat.** `hospitalburden_agegroups.csv` gives one total per
+> age band for the *whole season*, so the sampler constrains the age mix across
+> the season rather than within it. Weekly totals stay exact in every draw, but
+> the per-week age split carries a median coefficient of variation of ~0.38 on
+> the Ireland 2026/27 data. See the data README for detail.
 
 ---
 
@@ -116,6 +124,7 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 
 | Parameter | Description |
 |-----------|-------------|
+| `country` | Which of the 28 EU/EEA countries to model. Unknown values error with the available list |
 | `input_date_formats` | strptime format for each input CSV's date column. Parsed strictly — see note below |
 | `age_group_aliases` | Optional rename of source age labels. Leave empty if the data already uses the desired labels |
 | `age_group_order` | Display order for plots. Optional; the fallback is alphabetical, which orders age bands wrongly |
@@ -156,11 +165,13 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 
 ## Scenarios
 
-| Scenario | Uptake | Purpose |
-|----------|--------|---------|
-| `baseline` | observed | Observed data expressed in submission format |
-| `no_vacc` | 0 % | Counterfactual — no RSV vaccination |
-| `high_vacc` | 95 % | Counterfactual — near-universal uptake |
+Each scenario carries an uptake for **each programme independently**.
+
+| Scenario | Infant uptake | Adult coverage | Purpose |
+|----------|---------------|----------------|---------|
+| `baseline` | observed (83 %) | observed (0 %) | Observed data expressed in submission format |
+| `no_vacc` | 0 % | 0 % | Counterfactual — no RSV vaccination |
+| `high_vacc` | 95 % | 75 % | Counterfactual — high uptake in both programmes |
 
 ---
 

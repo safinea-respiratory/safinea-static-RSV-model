@@ -2,7 +2,7 @@
 # ============================================================ #
 # Configuration for the STATIC (sampling-based) RSV model
 #
-# Loaded by launch.R, which produces the RespiCompass 2025/2026
+# Loaded by launch.R, which produces the RespiCompass 2026/2027
 # submission via fixed-margin Monte-Carlo sampling of the observed
 # weekly + age-distributed RSV data, plus a vaccine coverage x
 # effectiveness x waning correction per scenario.
@@ -14,6 +14,32 @@
 # ============================================================ #
 
 # ============================================================ #
+# Countries
+#
+# The model runs once per country listed here and binds the results into
+# a single submission table, distinguished by round_id.
+#
+# `name` must match the `country` column of both epidemiological input
+# files (28 EU/EEA countries are available); `code` is substituted into
+# round_id_template. Unknown names are a hard error at load, listing
+# what is available.
+# ============================================================ #
+countries:
+  - {name: "Ireland", code: "IRL"}
+
+# round_id per country. "{code}" is replaced by each country's code.
+round_id_template: "2026_2027_1_RSV_{code}"
+
+# The administered_doses target needs monthly births for each country,
+# and the births file currently covers Ireland only. For a country with
+# no births data:
+#   error - stop with a message naming the country (default)
+#   skip  - warn, and omit that country's administered_doses rows.
+#           Its rsv_hospitalisations rows are unaffected.
+missing_births: "error"
+
+
+# ============================================================ #
 # Input date formats
 #
 # strptime codes for the date columns of each input CSV. Declared
@@ -23,8 +49,8 @@
 # plausible year range, is a hard error.
 # ============================================================ #
 input_date_formats:
-  weekly_counts: "%Y-%m-%d"    # RSV_weekly_counts.csv   -> date_wk_floor
-  monthly_age:   "%d/%m/%Y"    # RSV_monthly_prop_age.csv -> date_28days_floor
+  weekly_counts: "%Y-%m-%d"    # hospitaladmissions.csv        -> target_end_date
+  burden_agegroups: "%Y-%m-%d" # hospitalburden_agegroups.csv  -> start_date / end_date
 
 
 # ============================================================ #
@@ -34,22 +60,21 @@ input_date_formats:
 # defines a band; the keys below only *reference* bands that must
 # already be present in the epidemiological input. Any mismatch is a
 # hard error at load time (see R/validate.R).
+#
+# The RespiCompass target data supplies 11 bands. The finer adult bands
+# are what make an age-targeted adult campaign expressible: a 75+
+# programme is ["75-79", "80+"], with no population-fraction fudge.
 # ============================================================ #
 
 # Optional. Renames source labels to the labels used throughout the
-# model and in the submission `pop_group` column. Leave empty if the
-# input data already uses the desired labels.
-age_group_aliases:
-  "< 3 months":  "0-2mo"
-  "3-5 months":  "3-5mo"
-  "6-11 months": "6-11mo"
-  "1-4 years":   "1-4y"
-  "5-64 years":  "5-64y"
-  "65+ years":   "65+y"
+# model and in the submission `pop_group` column. Empty because the
+# RespiCompass input already uses the submission's own labels.
+age_group_aliases: {}
 
 # Display order for plots. Optional, but worth setting: the fallback is
 # alphabetical, which orders age bands wrongly.
-age_group_order: ["0-2mo", "3-5mo", "6-11mo", "1-4y", "5-64y", "65+y"]
+age_group_order: ["0-2mo", "3-5mo", "6-11mo", "1-4", "5-17", "18-59",
+                  "60-64", "65-69", "70-74", "75-79", "80+"]
 
 
 # ============================================================ #
@@ -75,25 +100,27 @@ infant_vaccination:
     "0-2mo":  0.97
     "3-5mo":  0.72
     "6-11mo": 0.30
-    "1-4y":   0.00
+    "1-4":    0.00
 
   # Age span of each band in MONTHS, [min inclusive, max exclusive].
   # Used to derive which birth cohort a band represents.
   #
   # List every band the programme has ever reached - INCLUDING bands
-  # whose protection has fully waned (e.g. 1-4y). These bounds also
+  # whose protection has fully waned (e.g. 1-4). These bounds also
   # drive the vaccinated / unvaccinated split, so dropping a fully-waned
   # band would silently change the immYes / immNo rows.
   age_bounds:
     "0-2mo":  [0,  3]
     "3-5mo":  [3,  6]
     "6-11mo": [6,  12]
-    "1-4y":   [12, 60]
+    "1-4":    [12, 60]
 
-  # Vaccination windows, one entry per season.
+  # Vaccination windows, one entry per season: the modelled 2026/27
+  # season plus the preceding one, since infants aged up to 4 years in
+  # 2026/27 may have been covered by an earlier season's programme.
   windows:
-    start: ["2024-09-01", "2025-09-01"]
-    end:   ["2025-02-28", "2026-02-28"]
+    start: ["2025-09-01", "2026-09-01"]
+    end:   ["2026-02-28", "2027-02-28"]
 
   # Uptake reflected in the observed baseline data. The scenario
   # machinery back-calculates the no-vaccination counterfactual using
@@ -122,9 +149,9 @@ adult_vaccination:
 
   # Age bands the adult programme covers. Must match bands present in
   # the data, and must not overlap the infant programme's bands.
-  # Change this list to retarget the programme (e.g. to ["75-79","80+"]
-  # once finer age bands are available in the input data).
-  eligible_age_groups: ["65+y"]
+  # Change this list to retarget the programme - e.g. ["75-79", "80+"]
+  # for a 75+ campaign, with no population-fraction approximation.
+  eligible_age_groups: ["65-69", "70-74", "75-79", "80+"]
 
   # Waning ensemble: 500 realisations of the VE-over-time curve.
   # Sample d uses rep d. See data/vaccine/README.md for provenance.
@@ -156,9 +183,6 @@ adult_vaccination:
   #   profile - how coverage accrues WITHIN the window.
   #             "uniform" = equal increment each week.
   #
-  # NOTE: campaign dates are set for the 2026/27 round. round_id,
-  # submission_horizon_anchor and the infant windows above still refer
-  # to 2025/26 and need migrating alongside the data swap.
   campaigns:
     - start:   "2026-09-01"
       end:     "2026-11-30"
@@ -180,8 +204,10 @@ adult_vaccination:
 # ============================================================ #
 # Round identifier and anchor date used to compute the `horizon`
 # column (weeks since the anchor) in the RespiCompass submission file.
-round_id: "2025_2026_1_RSV_IRL"
-submission_horizon_anchor: "2025-09-07"
+# The anchor is the first modelled week-ending date, so `horizon`
+# starts at 0. Matches the convention used in the previous round.
+# round_id is built per country from round_id_template above.
+submission_horizon_anchor: "2026-09-06"
 
 
 # ============================================================ #
@@ -194,7 +220,7 @@ submission_horizon_anchor: "2025-09-07"
 # become available.
 # TODO: replace with real / projected birth series for 2024-2026.
 births_data_cutoff: "2024-01-01"
-births_project_years: [2024, 2025, 2026]
+births_project_years: [2024, 2025, 2026, 2027]
 
 
 # ============================================================ #
@@ -205,4 +231,4 @@ births_project_years: [2024, 2025, 2026]
 # Data start date filters out all earlier data points.
 n_draws:    100
 mc_seed:    123
-data_start: "2023-06-01"
+data_start: "2026-08-01"

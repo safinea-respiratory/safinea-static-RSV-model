@@ -1,90 +1,107 @@
 # Epidemiological data
 
-Two files are required, spanning multiple RSV seasons.
+Both files come from RespiCompass target-data and cover **28 EU/EEA countries**.
+`country` in the config selects which one is modelled; an unknown country is a
+load-time error listing the available options.
+
+### Provenance
+
+| | |
+|---|---|
+| Source | [RespiCompass `target-data`](https://github.com/european-modelling-hubs/RespiCompass/tree/main/target-data) |
+| Commit | `3b4f627cac6b87e5533e4dfb6d42ac2fe30c3f35` |
+| Committed | 2026-07-03 |
+| Retrieved | 2026-08-11 |
+| Season | 2026/27 |
+
+Vendored deliberately — the model reads nothing over the network, so runs stay
+reproducible and offline.
 
 **Age bands are defined by these files, not by the code.** Whatever labels
-appear in `age_gp_modelling` become the model's age bands and flow through to
-the submission's `pop_group` column. The config only *references* them — any
-band named in `config/static_model.yaml` that is missing from the data is a
-hard error at load.
+appear in `age_group` become the model's bands and flow through to the
+submission's `pop_group`. The config only *references* them; any band named in
+the config but missing from the data is a hard error at load.
 
-**Date formats are declared, not guessed.** Each file's date format is set in
-`input_date_formats` in the config and parsed strictly. This matters: R's
-`as.Date("01/09/2025")` does not return `NA`, it silently returns `0001-09-20`,
-which previously caused every downstream join to yield zero rows without any
-error. Declared formats plus a plausible-year check make that impossible.
+**Date formats are declared, not guessed** (`input_date_formats` in the config).
+R's `as.Date("01/09/2025")` does not return `NA` — it silently returns
+`0001-09-20`. Declared formats plus a plausible-year check make that class of
+silent corruption impossible.
 
 ---
 
-## RSV_weekly_counts.csv
+## hospitaladmissions.csv
 
-Weekly aggregate RSV hospitalisation counts. One row per week.
-Date format: `input_date_formats.weekly_counts`.
+Weekly aggregate RSV hospitalisations, all ages. One row per (country × week).
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `date_wk_floor` | date | Monday of the ISO week (the model adds 6 days to get the week-ending Sunday) |
-| `season_name` | string | RSV season label, e.g. `2025/2026` |
-| `case_counts` | integer | Total RSV hospitalisations for that week |
+| `country` | string | Country name — filtered by `country` in the config |
+| `age_group` | string | Always `total` — unused by the model |
+| `target_end_date` | date | Week-ending date (Sunday). Used directly, no offset applied |
+| `year_week` | string | ISO year-week, e.g. `2026-W36` — unused |
+| `week` / `year` | integer | ISO week and year — unused |
+| `weekly_rsv_hospitalisations` | integer | Total RSV hospitalisations that week |
 
 **Example**
 
 ```
-date_wk_floor,season_name,case_counts
-2025-09-01,2025/2026,5
-2025-09-08,2025/2026,7
+country,age_group,target_end_date,year_week,week,year,weekly_rsv_hospitalisations
+Ireland,total,2026-09-06,2026-W36,36,2026,4
+Ireland,total,2026-09-13,2026-W37,37,2026,6
 ```
 
 ---
 
-## RSV_monthly_prop_age.csv
+## hospitalburden_agegroups.csv
 
-Age-distribution proportions over rolling 4-week periods. One row per
-(period × age group). Save with **UTF-8 BOM** encoding
-(`fileEncoding = "UTF-8-BOM"` in R) — the age labels may contain
-non-ASCII characters.
-Date format: `input_date_formats.monthly_age`.
+Age-stratified RSV hospitalisation totals over the season. One row per
+(country × age band). These are **absolute counts, not proportions** — the model
+uses them directly.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `date_28days_floor` | date | Monday of the 4-week period (the model adds 6 days to align with the weekly data) |
-| `age_gp_modelling` | string | Age band label — defines the model's bands (see below) |
-| `proportion` | float [0, 1] | Fraction of RSV admissions in this age band during the period |
-| `season_name` | string | RSV season label, e.g. `2025/2026` |
+| `country` | string | Country name — filtered by `country` in the config |
+| `age_group` | string | Age band label — defines the model's bands |
+| `start_date` | date | Start of the burden window |
+| `end_date` | date | End of the burden window |
+| `total_rsv_hospitalisations` | integer | Total RSV hospitalisations in that band over the window |
 
-Proportions for a given `date_28days_floor` must sum to 1.0 across all
-age bands.
-
-### Age band labels
-
-The labels here are authoritative. If they don't match the labels you want
-in the submission, either change them in this file, or map them with the
-optional `age_group_aliases` block in the config:
-
-```yaml
-age_group_aliases:
-  "< 3 months": "0-2mo"
-```
-
-Leave `age_group_aliases` empty when the file already uses the desired
-labels. RespiCompass currently uses:
+### Age bands
 
 `0-2mo, 3-5mo, 6-11mo, 1-4, 5-17, 18-59, 60-64, 65-69, 70-74, 75-79, 80+`
 
-Finer adult bands matter for the adult vaccination programme: a 75+ campaign
-can only be represented correctly if `75-79` and `80+` exist as separate
-bands. Lumping them into a single `65+` band and scaling by a population
-fraction understates the effect, because RSV hospitalisation risk rises
+The finer adult bands are what make an age-targeted adult campaign expressible.
+A 75+ programme is `["75-79", "80+"]` in
+`adult_vaccination.eligible_age_groups` — no population-fraction approximation,
+which would otherwise bias the estimate because RSV hospitalisation risk rises
 steeply with age.
+
+### ⚠ Time resolution
+
+This file gives **one total per band for the entire season**. The fixed-margin
+sampler therefore draws a single (weeks × ages) table per season rather than one
+per 4-week period, so the age mix is constrained only *across* the season, not
+within it.
+
+That is an honest reflection of what this data constrains — but the consequence
+is real and measurable. On the Ireland 2026/27 data the per-week age split has a
+median coefficient of variation of **0.38** across draws, with the 90th
+percentile at **0.80**.
+
+Weekly *totals* remain exact in every draw (they are a fixed margin), so
+all-ages outputs are unaffected. It is the age-specific rows that carry this
+uncertainty. Period-level age data, if available nationally, would tighten it
+considerably.
 
 **Example**
 
 ```
-date_28days_floor,age_gp_modelling,proportion,season_name
-01/09/2025,< 3 months,0.1,2025/2026
-01/09/2025,3-5 months,0.3,2025/2026
-01/09/2025,6-11 months,0.2,2025/2026
-01/09/2025,1-4 years,0.166667,2025/2026
-01/09/2025,5-64 years,0.133333,2025/2026
-01/09/2025,65+ years,0.1,2025/2026
+country,age_group,start_date,end_date,total_rsv_hospitalisations
+Ireland,0-2mo,2026-08-31,2027-08-29,1006
+Ireland,3-5mo,2026-08-31,2027-08-29,617
+Ireland,80+,2026-08-31,2027-08-29,717
 ```
+
+Marginals must reconcile: for Ireland 2026/27 both files sum to 5,116. When they
+disagree the sampler scales one side (`reconcile` in
+`simulate_weekly_age_fixed_margins`).

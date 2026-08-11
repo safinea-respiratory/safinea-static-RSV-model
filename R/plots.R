@@ -76,17 +76,24 @@ plot_scenario_comparison <- function(submission_df) {
 # scenario. Use this to check that age-disaggregation produces a
 # clinically plausible profile (e.g., infant groups peak earlier and
 # higher relative to their population size).
-# scenario: one of "baseline", "no_vacc", "high_vacc"
-plot_age_breakdown <- function(submission_df, scenario = "baseline") {
-  age_order <- c("0-2mo", "3-5mo", "6-11mo", "1-4y", "5-64y", "65+y")
+# scenario:  one of "baseline", "no_vacc", "high_vacc"
+# age_order: display order for the age bands, normally cfg$age_group_order.
+#            Defaults to alphabetical, which orders age bands wrongly -
+#            pass the config value to get a sensible axis.
+plot_age_breakdown <- function(submission_df, scenario = "baseline",
+                               age_order = NULL) {
 
   # pop_group format is "<age>_immTotal" for age-specific total rows
-  submission_df %>%
+  bands <- submission_df %>%
     filter(target      == "rsv_hospitalisations",
            scenario_id == scenario,
            grepl("_immTotal$", pop_group),
            !grepl("^total_", pop_group)) %>%
-    mutate(age_group = sub("_immTotal$", "", pop_group)) %>%
+    mutate(age_group = sub("_immTotal$", "", pop_group))
+
+  if (is.null(age_order)) age_order <- sort(unique(bands$age_group))
+
+  bands %>%
     filter(age_group %in% age_order) %>%
     mutate(age_group = factor(age_group, levels = age_order)) %>%
     group_by(age_group, target_end_date) %>%

@@ -10,6 +10,11 @@
 #   4. Formats results into the RespiCompass submission schema and
 #      builds a parallel administered-doses table.
 #
+# The infant and adult vaccination programmes are INDEPENDENT: different
+# products, eligibility rules, waning data and uncertainty models. Only
+# the infant programme is applied at present; the adult waning ensemble
+# is loaded and validated but not yet wired in.
+#
 # Configuration: config/static_model.yaml
 # Run from the project root: Rscript launch.R
 # ==============================================================
@@ -25,6 +30,7 @@ library(ggplot2)
 library(nanoparquet)
 
 source("R/utils.R")
+source("R/validate.R")
 source("R/simulate_margins.R")
 source("R/apply_scenario.R")
 source("R/load_data.R")
@@ -41,6 +47,15 @@ cfg <- load_config("config/static_model.yaml")
 epi    <- load_epidemiological_data(cfg)
 births <- load_births_data(cfg)
 
+# Fail fast: every age band named in the config must exist in the data,
+# and the two programmes must cover disjoint bands. Runs before any
+# modelling because the joins it protects fail silently.
+validate_config(cfg, epi)
+
+# Adult waning ensemble: one whole VE-over-time curve per sample.
+# Loaded and validated now; not yet consumed by the model.
+adult_waning <- load_waning_curves(cfg, n_draws = cfg$n_draws)
+
 
 # ---- Baseline Monte-Carlo --------------------------------------
 # Draw n_draws contingency tables per 4-week period. Each draw
@@ -54,27 +69,28 @@ baseline_df <- simulate_weekly_age_fixed_margins(
 )
 
 
-# ---- Vaccination scenarios -------------------------------------
+# ---- Infant vaccination scenarios ------------------------------
 # run_scenario() back-calculates the no-vaccination counterfactual
-# from the observed baseline (using cfg$baseline_uptake) then
+# from the observed baseline (using cfg$infant$baseline_uptake) then
 # re-applies the requested uptake to give the scenario admissions.
 run_scenario <- function(uptake) {
   apply_scenario(
     df                   = baseline_df,
-    IE_mean              = cfg$vacc_IE$mean,
-    IE_sd                = cfg$vacc_IE$sd,
+    IE_mean              = cfg$infant$vacc_IE_mean,
+    IE_sd                = cfg$infant$vacc_IE_sd,
     vacc_uptake          = uptake,
-    vacc_start           = cfg$vacc_start,
-    vacc_end             = cfg$vacc_end,
-    vacc_uptake_baseline = cfg$baseline_uptake,
-    waning_df            = cfg$waning_function
+    vacc_start           = cfg$infant$vacc_start,
+    vacc_end             = cfg$infant$vacc_end,
+    vacc_uptake_baseline = cfg$infant$baseline_uptake,
+    waning_df            = cfg$infant$waning_df,
+    age_bounds           = cfg$infant$age_bounds
   )
 }
 
 # no_vacc   — counterfactual: zero vaccination uptake
 # high_vacc — counterfactual: 95 % uptake
-scenario_A_df <- run_scenario(cfg$scenarios$no_vacc)
-scenario_B_df <- run_scenario(cfg$scenarios$high_vacc)
+scenario_A_df <- run_scenario(cfg$infant$scenarios$no_vacc)
+scenario_B_df <- run_scenario(cfg$infant$scenarios$high_vacc)
 
 
 # ---- RespiCompass submission format ----------------------------
@@ -91,8 +107,8 @@ submission_pre <- assemble_submission(
 doses_df <- build_dose_table(
   baseline_df     = baseline_df,
   births_df       = births,
-  vacc_start      = cfg$vacc_start,
-  vacc_end        = cfg$vacc_end,
+  vacc_start      = cfg$infant$vacc_start,
+  vacc_end        = cfg$infant$vacc_end,
   cfg             = cfg,
   anchor          = cfg$anchor,
   output_type_ids = unique(submission_pre$output_type_id)
@@ -106,7 +122,8 @@ submission <- bind_rows(submission_pre, doses_df) %>% as.data.table()
 # ---- Diagnostic plots (uncomment to view) ----------------------
 # plot_baseline_samples(baseline_df)
 # plot_scenario_comparison(submission_pre)
-# plot_age_breakdown(submission_pre, scenario = "baseline")
+# plot_age_breakdown(submission_pre, scenario = "baseline",
+#                    age_order = unlist(cfg$age_group_order))
 # plot_dose_schedule(doses_df)
 
 

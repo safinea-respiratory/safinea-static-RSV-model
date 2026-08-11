@@ -22,6 +22,33 @@ user-specified vaccination scenarios. It was developed as part of the 2025/2026
 
 ---
 
+## Two independent vaccination programmes
+
+The infant and adult programmes are different products and are modelled
+separately. They share no parameters, and the config requires them to cover
+disjoint age bands.
+
+| | Infant (maternal / birth-dose) | Adult |
+|---|---|---|
+| Eligibility | Birth cohort ∩ vaccination window | Calendar campaign coverage |
+| Waning indexed by | **Age band** — age equals time since dose | **Months since dose** (0–36) |
+| Waning source | `waning_by_band` in the config | `data/vaccine/waning_curves.csv` |
+| Uncertainty | Parametric draw on `vacc_IE` | Empirical — one whole curve per sample |
+| Status | Active | **Loaded and validated, not yet applied** |
+
+---
+
+## Age bands come from the data
+
+The model does not define age bands. Whatever labels appear in
+`RSV_monthly_prop_age.csv` become the bands, and flow through to the
+submission's `pop_group`. The config only *references* them — any band named
+in the config but absent from the data is a hard error at load, as is any
+overlap between the two programmes. This matters because the joins involved
+otherwise fail silently, yielding `NA` values rather than an error.
+
+---
+
 ## Repository structure
 
 ```
@@ -31,18 +58,25 @@ config/
 data/
   epidemiological/
     RSV_weekly_counts.csv         # observed weekly RSV admissions
-    RSV_monthly_prop_age.csv      # monthly age-split proportions
+    RSV_monthly_prop_age.csv      # monthly age-split proportions (defines age bands)
   population/
     country_monthly_births.csv    # monthly births
+  vaccine/
+    waning_curves.csv             # adult VE ensemble, 500 curves (from RespiCompass)
 R/
   utils.R                         # round_preserve_sum
+  validate.R                      # fail-fast config/data consistency checks
   simulate_margins.R              # fixed-margin Monte-Carlo sampler
-  apply_scenario.R                # vaccination scenario logic + birth-window helper
-  load_data.R                     # config and data loading functions
+  apply_scenario.R                # INFANT programme: birth-window + scenario logic
+  load_data.R                     # config, data and waning-curve loaders
   format_submission.R             # RespiCompass submission formatting
   build_doses.R                   # administered-doses table
   plots.R                         # diagnostic plots
 ```
+
+`data/vaccine/waning_curves.csv` is vendored from RespiCompass — see
+[data/vaccine/README.md](data/vaccine/README.md) for provenance. It is the only
+external dataset in the repo; nothing is fetched over the network at runtime.
 
 ---
 
@@ -62,16 +96,42 @@ Required packages: `dplyr`, `tidyr`, `purrr`, `tibble`, `lubridate`,
 
 All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 
+**Top level**
+
 | Parameter | Description |
 |-----------|-------------|
-| `vacc_IE` | Vaccine effectiveness distribution (`mean`, `sd`) |
-| `waning_by_band` | Residual susceptibility after waning, per age band (1 = no protection) |
-| `vaccination_start/end` | Vaccination window dates (one entry per season) |
-| `baseline_uptake` | RSV vaccine uptake already reflected in the observed data |
+| `input_date_formats` | strptime format for each input CSV's date column. Parsed strictly — see note below |
+| `age_group_aliases` | Optional rename of source age labels. Leave empty if the data already uses the desired labels |
+| `age_group_order` | Display order for plots. Optional; the fallback is alphabetical, which orders age bands wrongly |
 | `round_id` | RespiCompass round identifier |
 | `submission_horizon_anchor` | Anchor date for computing the `horizon` column |
 | `n_draws` / `mc_seed` | Monte-Carlo sample count and RNG seed |
 | `data_start` | Earliest date included in the baseline sampler |
+
+**`infant_vaccination`**
+
+| Parameter | Description |
+|-----------|-------------|
+| `vacc_IE` | Vaccine effectiveness distribution (`mean`, `sd`) |
+| `waning_by_band` | Residual protection per age band (1 = full initial protection, 0 = none left). Bands not listed default to 0 |
+| `age_bounds` | Age span of each band in months. List every band the programme has reached, **including fully-waned ones** — these bounds also drive the vaccinated/unvaccinated split |
+| `windows` | Vaccination window dates (one entry per season) |
+| `baseline_uptake` | Uptake already reflected in the observed data |
+| `scenarios` | Per-scenario uptake |
+
+**`adult_vaccination`**
+
+| Parameter | Description |
+|-----------|-------------|
+| `eligible_age_groups` | Bands the adult programme covers. Change this to retarget the programme |
+| `waning_curves` | Path to the VE ensemble |
+| `ve_target` | Which VE column to use (`VE_sev`) |
+| `ve_beyond_curve` | Protection past month 36 — `zero` or `hold_last` |
+
+> **Dates are declared, never guessed.** `as.Date("01/09/2025")` does not
+> return `NA` in R — it silently returns `0001-09-20`. Declaring the format in
+> `input_date_formats`, combined with a plausible-year check, turns that class
+> of silent corruption into a load-time error.
 
 ---
 

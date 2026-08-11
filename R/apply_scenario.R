@@ -1,36 +1,51 @@
+# ============================================================ #
+# INFANT PROGRAMME - maternal / birth-dose product
+#
+# Everything in this file belongs to the infant programme only. Its
+# defining property is that protection is conferred at (or before)
+# birth, so time-since-vaccination equals age, and both eligibility and
+# waning can be derived from the age band alone.
+#
+# The adult programme is entirely independent: eligibility comes from a
+# calendar campaign and waning is indexed by months since dose, drawn
+# from an ensemble. It shares no parameters with the code below.
+# ============================================================ #
+
+
 # For each (target_end_date, age_group) row, compute the fraction of
 # the implied birth cohort that was born inside the union of vaccination
 # windows. Used to split observed admissions between the "would have
 # been vaccinated" and "would not" strata.
 #
+# age_bounds: data.frame(age_group, min_mo, max_mo) from the config,
+#   giving each band's age span in months, [min inclusive, max exclusive).
+#   Bands absent from age_bounds are ones the infant programme never
+#   reached; they get prop_born_in_window = 0.
+#
 # vacc_start / vacc_end: Date vectors (one element per season)
-add_prop_born_in_window <- function(df, vacc_start, vacc_end,
+add_prop_born_in_window <- function(df, vacc_start, vacc_end, age_bounds,
                                     age_col  = "age_group",
                                     date_col = "target_end_date") {
 
-  # Map age-band labels to [min_months, max_months) of cohort age at
-  # target_end_date. 65+y has no finite upper bound.
-  age_map <- tibble::tibble(
-    !!age_col := c("0-2mo", "3-5mo", "6-11mo", "1-4y", "5-64y", "65+y"),
-    min_mo   = c(0,  3,  6, 12,  60,  780),
-    max_mo   = c(3,  6, 12, 60, 780,  Inf)
-  )
+  bounds <- age_bounds %>% rename(!!age_col := age_group)
 
   df %>%
-    left_join(age_map, by = age_col) %>%
+    left_join(bounds, by = age_col) %>%
     rowwise() %>%
     mutate(
-      # Birth window: the range of birth dates for children aged
-      # [min_mo, max_mo) months at the target week.
-      birth_start = if (is.infinite(max_mo)) as.Date(NA)
+      # Birth window: the range of birth dates for people aged
+      # [min_mo, max_mo) months at the target week. NA bounds mean the
+      # band is outside the infant programme entirely.
+      birth_start = if (is.na(max_mo) || is.infinite(max_mo)) as.Date(NA)
                     else (!!sym(date_col)) %m-% months(max_mo),
-      birth_end   = (!!sym(date_col)) %m-% months(min_mo),
+      birth_end   = if (is.na(min_mo)) as.Date(NA)
+                    else (!!sym(date_col)) %m-% months(min_mo),
 
       # Overlap between the cohort's birth window and each vaccination
       # season window, summed across seasons.
       inter_days = case_when(
-        is.na(birth_start)       ~ 0,
-        birth_end <= birth_start ~ 0,
+        is.na(birth_start) | is.na(birth_end) ~ 0,
+        birth_end <= birth_start              ~ 0,
         TRUE ~ {
           inter_starts <- pmax(birth_start, vacc_start)
           inter_ends   <- pmin(birth_end,   vacc_end)
@@ -38,9 +53,9 @@ add_prop_born_in_window <- function(df, vacc_start, vacc_end,
         }
       ),
       denom_days = case_when(
-        is.na(birth_start)       ~ Inf,
-        birth_end <= birth_start ~ 0,
-        TRUE                     ~ as.numeric(birth_end - birth_start)
+        is.na(birth_start) | is.na(birth_end) ~ Inf,
+        birth_end <= birth_start              ~ 0,
+        TRUE                                  ~ as.numeric(birth_end - birth_start)
       ),
       prop_born_in_window = case_when(
         is.infinite(denom_days) | denom_days <= 0 ~ 0,
@@ -52,7 +67,7 @@ add_prop_born_in_window <- function(df, vacc_start, vacc_end,
 }
 
 
-# Apply a vaccination scenario to baseline Monte-Carlo samples.
+# Apply an INFANT vaccination scenario to baseline Monte-Carlo samples.
 #
 # Steps:
 #   1. Compute the fraction of each age cohort born in a vaccination window.
@@ -68,16 +83,19 @@ add_prop_born_in_window <- function(df, vacc_start, vacc_end,
 #   vacc_start/vacc_end  – Date vectors (one element per season)
 #   vacc_uptake_baseline – uptake already embedded in the observed baseline
 #   waning_df            – data.frame(age_group, waning); waning ∈ [0,1]
-#                          where 1 = no protection remaining, 0 = full
+#                          where 1 = full initial protection, 0 = none left.
+#                          Bands absent from waning_df default to 0.
+#   age_bounds           – data.frame(age_group, min_mo, max_mo)
 apply_scenario <- function(df,
                            IE_mean, IE_sd,
                            vacc_uptake,
                            vacc_start, vacc_end,
                            vacc_uptake_baseline = 0,
-                           waning_df) {
+                           waning_df,
+                           age_bounds) {
 
   df %>%
-    add_prop_born_in_window(vacc_start, vacc_end) %>%
+    add_prop_born_in_window(vacc_start, vacc_end, age_bounds) %>%
     # One VE draw per sample (shared across all age groups in that draw)
     group_by(sample) %>%
     mutate(vacc_IE = rnorm(1, mean = IE_mean, sd = IE_sd)) %>%
@@ -89,6 +107,8 @@ apply_scenario <- function(df,
     rename(value_total = value) %>%
     pivot_longer(c("yes", "no"), values_to = "proportion", names_to = "immunisation") %>%
     left_join(waning_df, by = "age_group") %>%
+    # A band with no waning entry is one this programme does not reach
+    mutate(waning = coalesce(waning, 0)) %>%
     # Back-calculate the no-vaccination counterfactual from the observed data
     mutate(value_total_no_vax =
              value_total / (1 - (vacc_uptake_baseline * prop_born_in_window) *

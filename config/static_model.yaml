@@ -2,53 +2,157 @@
 # ============================================================ #
 # Configuration for the STATIC (sampling-based) RSV model
 #
-# Loaded by launch.R, which produces the
-# RespiCompass 2025/2026 submission via fixed-margin Monte-Carlo
-# sampling of the observed weekly + age-distributed RSV data, plus a
-# vaccine coverage x effectiveness x waning correction per scenario.
+# Loaded by launch.R, which produces the RespiCompass 2025/2026
+# submission via fixed-margin Monte-Carlo sampling of the observed
+# weekly + age-distributed RSV data, plus a vaccine coverage x
+# effectiveness x waning correction per scenario.
 #
-# This file is read directly by launch.R.
+# IMPORTANT: the infant and adult vaccination programmes are entirely
+# INDEPENDENT - different products, different eligibility rules,
+# different waning data, and different uncertainty models. They share
+# no parameters. Each has its own block below.
 # ============================================================ #
 
-# ---- Vaccine effectiveness (Immunisation Efficacy) ----
-# A per-Monte-Carlo-sample draw is made from a normal distribution.
-vacc_IE:
-  mean: 0.87 # Values are given by RespiCompass 2025/26 RSV round
-  sd:   0.026
+# ============================================================ #
+# Input date formats
+#
+# strptime codes for the date columns of each input CSV. Declared
+# explicitly and parsed strictly, because R's as.Date() will happily
+# turn "01/09/2025" into the year 1 without raising an error - it does
+# NOT return NA. Any value that fails to parse, or lands outside a
+# plausible year range, is a hard error.
+# ============================================================ #
+input_date_formats:
+  weekly_counts: "%Y-%m-%d"    # RSV_weekly_counts.csv   -> date_wk_floor
+  monthly_age:   "%d/%m/%Y"    # RSV_monthly_prop_age.csv -> date_28days_floor
 
-# ---- Vaccine waning by RespiCompass reporting band ----
-# Relative to initial value
-# 0 = no protection, 1 = equivalent to full initial protection.
-# Source: mean of RespiCompass waning curves
-# (https://github.com/european-modelling-hubs/RespiCompass/blob/main/auxiliary-data/waning/waning_curves.csv).
-waning_by_band:
-  "0-2mo":  0.97
-  "3-5mo":  0.72
-  "6-11mo": 0.30
-  "1-4y":   0.00
-  "5-64y":  0.00
-  "65+y":   0.00
 
-# ---- Vaccination windows ----
-vaccination_start: ["2024-09-01", "2025-09-01"]
-vaccination_end:   ["2025-02-28", "2026-02-28"]
+# ============================================================ #
+# Age groups
+#
+# The model takes its age bands FROM THE DATA. Nothing in this file
+# defines a band; the keys below only *reference* bands that must
+# already be present in the epidemiological input. Any mismatch is a
+# hard error at load time (see R/validate.R).
+# ============================================================ #
 
-# ---- Scenario uptake ----
-# baseline_uptake reflects the actually-administered RSV vaccination
-baseline_uptake: 0.83
+# Optional. Renames source labels to the labels used throughout the
+# model and in the submission `pop_group` column. Leave empty if the
+# input data already uses the desired labels.
+age_group_aliases:
+  "< 3 months":  "0-2mo"
+  "3-5 months":  "3-5mo"
+  "6-11 months": "6-11mo"
+  "1-4 years":   "1-4y"
+  "5-64 years":  "5-64y"
+  "65+ years":   "65+y"
 
-# Per-scenario vaccine uptake in the eligible group(s)
-scenarios:
-  no_vacc:   0.00
-  high_vacc: 0.95
+# Display order for plots. Optional, but worth setting: the fallback is
+# alphabetical, which orders age bands wrongly.
+age_group_order: ["0-2mo", "3-5mo", "6-11mo", "1-4y", "5-64y", "65+y"]
 
-# ---- Submission output ----
+
+# ============================================================ #
+# INFANT PROGRAMME - maternal / birth-dose product
+#
+# Protection is conferred at (or before) birth, so time-since-
+# vaccination equals age. Waning is therefore indexed by AGE BAND.
+# Eligibility is determined by whether a band's birth cohort falls
+# inside a vaccination window.
+# ============================================================ #
+infant_vaccination:
+
+  # Vaccine effectiveness. One draw per Monte-Carlo sample.
+  # Values are given by the RespiCompass 2025/26 RSV round.
+  vacc_IE:
+    mean: 0.87
+    sd:   0.026
+
+  # Residual protection by age band, relative to the initial value.
+  # 0 = no protection left, 1 = full initial protection.
+  # Bands absent from this list default to 0 (no infant protection).
+  waning_by_band:
+    "0-2mo":  0.97
+    "3-5mo":  0.72
+    "6-11mo": 0.30
+    "1-4y":   0.00
+
+  # Age span of each band in MONTHS, [min inclusive, max exclusive].
+  # Used to derive which birth cohort a band represents.
+  #
+  # List every band the programme has ever reached - INCLUDING bands
+  # whose protection has fully waned (e.g. 1-4y). These bounds also
+  # drive the vaccinated / unvaccinated split, so dropping a fully-waned
+  # band would silently change the immYes / immNo rows.
+  age_bounds:
+    "0-2mo":  [0,  3]
+    "3-5mo":  [3,  6]
+    "6-11mo": [6,  12]
+    "1-4y":   [12, 60]
+
+  # Vaccination windows, one entry per season.
+  windows:
+    start: ["2024-09-01", "2025-09-01"]
+    end:   ["2025-02-28", "2026-02-28"]
+
+  # Uptake reflected in the observed baseline data. The scenario
+  # machinery back-calculates the no-vaccination counterfactual using
+  # this value, then re-applies the scenario uptake.
+  baseline_uptake: 0.83
+
+  # Per-scenario uptake in the eligible group(s).
+  scenarios:
+    no_vacc:   0.00
+    high_vacc: 0.95
+
+
+# ============================================================ #
+# ADULT PROGRAMME - separate product, separate schedule
+#
+# Protection is conferred at vaccination during a calendar campaign, so
+# waning is indexed by MONTHS SINCE DOSE, not by age. Uncertainty comes
+# from the 500-curve RespiCompass ensemble: each Monte-Carlo sample uses
+# one entire curve. There is deliberately NO vacc_IE draw here - the
+# ensemble already carries the uncertainty.
+#
+# NOT YET WIRED INTO THE MODEL. The curves are loaded and validated,
+# but no adult vaccination effect is applied yet.
+# ============================================================ #
+adult_vaccination:
+
+  # Age bands the adult programme covers. Must match bands present in
+  # the data, and must not overlap the infant programme's bands.
+  # Change this list to retarget the programme (e.g. to ["75-79","80+"]
+  # once finer age bands are available in the input data).
+  eligible_age_groups: ["65+y"]
+
+  # Waning ensemble: 500 realisations of the VE-over-time curve.
+  # Sample d uses rep d. See data/vaccine/README.md for provenance.
+  waning_curves: "data/vaccine/waning_curves.csv"
+
+  # Which VE column to use. VE_sev is unconditional protection against
+  # RSV hospitalisation, so it is the correct multiplier for this
+  # model's hospitalisation target. VE_inf is loaded but unused.
+  ve_target: "VE_sev"
+
+  # Protection beyond the last tabulated month (36):
+  #   zero      - assume no residual protection
+  #   hold_last - carry the final tabulated value forward
+  ve_beyond_curve: "zero"
+
+
+# ============================================================ #
+# Submission output
+# ============================================================ #
 # Round identifier and anchor date used to compute the `horizon`
 # column (weeks since the anchor) in the RespiCompass submission file.
 round_id: "2025_2026_1_RSV_IRL"
 submission_horizon_anchor: "2025-09-07"
 
-# ---- Births data ----
+
+# ============================================================ #
+# Births data
+# ============================================================ #
 # Real births data is only available pre-2024 at time of writing.
 # The static model projects the 2023 monthly pattern forward to
 # 2024-2026 as a placeholder (assumes year-on-year stability in the
@@ -58,10 +162,13 @@ submission_horizon_anchor: "2025-09-07"
 births_data_cutoff: "2024-01-01"
 births_project_years: [2024, 2025, 2026]
 
-# ---- Monte-Carlo settings ----
+
+# ============================================================ #
+# Monte-Carlo settings
+# ============================================================ #
 # Number of draws per time point and RNG seed for reproducibility.
-# Data start date filters out all earlier data points
+# n_draws must not exceed the number of reps in the waning ensemble.
+# Data start date filters out all earlier data points.
 n_draws:    100
 mc_seed:    123
 data_start: "2023-06-01"
-

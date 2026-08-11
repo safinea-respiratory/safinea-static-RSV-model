@@ -1,8 +1,11 @@
-# Build the administered-doses table for all scenarios.
+# Build the INFANT administered-doses table for all scenarios.
 #
 # Weekly dose counts are derived from monthly births aligned to
 # ISO-week-ending Sundays, zeroed outside the vaccination windows, then
 # scaled by each scenario's uptake fraction.
+#
+# The adult programme will need its own dose track, driven by campaign
+# coverage against an adult population denominator rather than births.
 #
 # The resulting table is crossed with the submission's output_type_id grid
 # so the dose rows share the same sample-index structure as the
@@ -51,9 +54,9 @@ build_dose_table <- function(baseline_df, births_df,
 
   crossing(
     bind_rows(
-      scale_doses(cfg$baseline_uptake,     "baseline"),
-      scale_doses(cfg$scenarios$no_vacc,   "no_vacc"),
-      scale_doses(cfg$scenarios$high_vacc, "high_vacc")
+      scale_doses(cfg$infant$baseline_uptake,     "baseline"),
+      scale_doses(cfg$infant$scenarios$no_vacc,   "no_vacc"),
+      scale_doses(cfg$infant$scenarios$high_vacc, "high_vacc")
     ),
     round_id       = cfg$round_id,
     output_type    = "sample",

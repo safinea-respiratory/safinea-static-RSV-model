@@ -89,6 +89,60 @@ validate_adult_config <- function(cfg) {
             "no adult programme will be applied.")
   }
 
+  # ---- campaigns ----
+  camps <- cfg$adult$campaigns
+
+  for (i in seq_along(camps)) {
+    cp <- camps[[i]]
+    if (is.na(cp$start) || is.na(cp$end)) {
+      stop("adult_vaccination.campaigns[[", i, "]] has an unparseable ",
+           "start or end date.", call. = FALSE)
+    }
+    if (cp$end < cp$start) {
+      stop("adult_vaccination.campaigns[[", i, "]] ends before it starts: ",
+           format(cp$start), " to ", format(cp$end), call. = FALSE)
+    }
+  }
+
+  if (length(camps) > 0) {
+    shares <- vapply(camps, function(c) c$share, numeric(1))
+    if (any(is.na(shares))) {
+      stop("adult_vaccination.campaigns: `share` must be given on every ",
+           "campaign or omitted from all of them (for an equal split).",
+           call. = FALSE)
+    }
+    if (abs(sum(shares) - 1) > 1e-8) {
+      stop("adult_vaccination.campaigns: `share` values must sum to 1, ",
+           "got ", format(sum(shares)),
+           "\n  shares: ", paste(shares, collapse = ", "),
+           call. = FALSE)
+    }
+
+    # One-off cumulative coverage assumes campaigns recruit distinct
+    # people; overlapping windows make that ambiguous.
+    if (length(camps) > 1) {
+      ord <- order(vapply(camps, function(c) as.numeric(c$start), numeric(1)))
+      s   <- camps[ord]
+      for (i in seq_len(length(s) - 1)) {
+        if (s[[i + 1]]$start <= s[[i]]$end) {
+          warning("adult_vaccination.campaigns: windows ", i, " and ", i + 1,
+                  " overlap. Coverage is one-off and cumulative, so ",
+                  "overlapping campaigns are ambiguous.", call. = FALSE)
+        }
+      }
+    }
+  }
+
+  # ---- coverage levels ----
+  covs <- c(baseline = cfg$adult$baseline_coverage,
+            unlist(cfg$adult$scenarios))
+  bad  <- covs[!is.na(covs) & (covs < 0 | covs > 1)]
+  if (length(bad) > 0) {
+    stop("Adult coverage values must lie in [0, 1]:\n  ",
+         paste0(names(bad), " = ", bad, collapse = "\n  "),
+         call. = FALSE)
+  }
+
   invisible(TRUE)
 }
 

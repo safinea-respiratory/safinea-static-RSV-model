@@ -115,6 +115,56 @@ plot_age_breakdown <- function(submission_df, scenario = "baseline",
 # Doses are derived from projected births × scenario uptake and are
 # zero outside the vaccination windows. Use this to sanity-check that
 # the window logic and birth projections look sensible before submitting.
+# ---- Plot 5: Adult campaign coverage and protection ---------------------
+# Shows the three quantities produced by the adult convolution, for one
+# eligible age band:
+#
+#   coverage       – cumulative fraction of the eligible population
+#                    vaccinated. Rises during each campaign window, then
+#                    flat (one-off dosing means it never decays).
+#   residual VE    – coverage-weighted mean protection among the
+#                    vaccinated. Falls as the cohort ages past its dose.
+#   effective      – coverage x residual VE, the term that actually
+#                    multiplies admissions.
+#
+# Use this to check that campaign windows, accrual and waning line up:
+# coverage should be a staircase over the campaign, residual VE should
+# start near the month-0 VE and decay, and effective protection should
+# peak shortly after the campaign ends.
+#
+# Band shows the 95 % interval across the waning-curve ensemble.
+plot_adult_protection <- function(protection_df, age_group_to_plot = NULL) {
+
+  d <- protection_df
+  if (is.null(age_group_to_plot)) age_group_to_plot <- d$age_group[1]
+  d <- d %>% filter(age_group == age_group_to_plot)
+
+  d %>%
+    mutate(effective = coverage * residual_ve) %>%
+    tidyr::pivot_longer(c("coverage", "residual_ve", "effective"),
+                        names_to = "quantity", values_to = "v") %>%
+    mutate(quantity = factor(quantity,
+                             levels = c("coverage", "residual_ve", "effective"),
+                             labels = c("Coverage", "Residual VE",
+                                        "Effective (coverage x VE)"))) %>%
+    group_by(quantity, target_end_date) %>%
+    summarise(median = median(v),
+              lo     = quantile(v, 0.025),
+              hi     = quantile(v, 0.975),
+              .groups = "drop") %>%
+    ggplot(aes(x = target_end_date, colour = quantity, fill = quantity)) +
+    geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.15, colour = NA) +
+    geom_line(aes(y = median), linewidth = 0.8) +
+    labs(
+      title    = paste0("Adult programme — age group: '", age_group_to_plot, "'"),
+      subtitle = "Median + 95 % interval across the waning-curve ensemble",
+      x = "Week ending", y = "Fraction", colour = NULL, fill = NULL
+    ) +
+    theme_bw() +
+    theme(legend.position = "bottom")
+}
+
+
 plot_dose_schedule <- function(doses_df) {
   doses_df %>%
     distinct(scenario_id, target_end_date, value) %>%

@@ -92,11 +92,27 @@ load_config <- function(path = "config/static_model.yaml") {
   # No VE level parameter here by design: the waning ensemble carries
   # the uncertainty, one whole curve per Monte-Carlo sample.
   adu <- cfg$adult_vaccination
+
+  # Campaigns: normalise dates and fill in equal shares when omitted.
+  campaigns <- lapply(adu$campaigns, function(cp) {
+    list(start   = as.Date(cp$start),
+         end     = as.Date(cp$end),
+         share   = if (is.null(cp$share)) NA_real_ else as.numeric(cp$share),
+         profile = if (is.null(cp$profile)) "uniform" else cp$profile)
+  })
+  if (length(campaigns) > 0 && all(vapply(campaigns, function(c) is.na(c$share), logical(1)))) {
+    eq <- 1 / length(campaigns)
+    campaigns <- lapply(campaigns, function(c) { c$share <- eq; c })
+  }
+
   cfg$adult <- list(
     eligible_age_groups = unlist(adu$eligible_age_groups),
     waning_curves_path  = adu$waning_curves,
     ve_target           = adu$ve_target,
-    ve_beyond_curve     = adu$ve_beyond_curve
+    ve_beyond_curve     = adu$ve_beyond_curve,
+    campaigns           = campaigns,
+    baseline_coverage   = adu$baseline_coverage,
+    scenarios           = adu$scenarios
   )
 
   cfg

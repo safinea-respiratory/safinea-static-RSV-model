@@ -34,7 +34,22 @@ disjoint age bands.
 | Waning indexed by | **Age band** — age equals time since dose | **Months since dose** (0–36) |
 | Waning source | `waning_by_band` in the config | `data/vaccine/waning_curves.csv` |
 | Uncertainty | Parametric draw on `vacc_IE` | Empirical — one whole curve per sample |
-| Status | Active | **Loaded and validated, not yet applied** |
+| Coverage accrual | Per season, birth-driven | One-off and cumulative across seasons |
+| Status | Applied to admissions | **Coverage computed, not yet applied** |
+
+The adult programme's coverage and residual VE are produced by convolving the
+campaign uptake curve with the VE ensemble:
+
+```
+coverage(t)    = Σ  δ(w)              for vaccination weeks w ≤ t
+protection(t)  = Σ  δ(w) · VE(t − w)
+residual_ve(t) = protection(t) / coverage(t)
+```
+
+Because expected admissions are *linear* in VE, this coverage-weighted mean is
+exact rather than an approximation. `protection(t)` is precisely the
+`coverage × residual_VE` term the scenario arithmetic needs, which is why
+wiring it in (step 4) leaves the surrounding algebra untouched.
 
 ---
 
@@ -68,6 +83,7 @@ R/
   validate.R                      # fail-fast config/data consistency checks
   simulate_margins.R              # fixed-margin Monte-Carlo sampler
   apply_scenario.R                # INFANT programme: birth-window + scenario logic
+  adult_protection.R              # ADULT programme: campaign x waning convolution
   load_data.R                     # config, data and waning-curve loaders
   format_submission.R             # RespiCompass submission formatting
   build_doses.R                   # administered-doses table
@@ -127,6 +143,9 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `waning_curves` | Path to the VE ensemble |
 | `ve_target` | Which VE column to use (`VE_sev`) |
 | `ve_beyond_curve` | Protection past month 36 — `zero` or `hold_last` |
+| `campaigns` | Campaign windows with `share` (portion of total coverage, must sum to 1) and `profile` (`uniform`) |
+| `baseline_coverage` | Cumulative coverage already reflected in the observed data |
+| `scenarios` | Total cumulative coverage of the eligible population, per scenario |
 
 > **Dates are declared, never guessed.** `as.Date("01/09/2025")` does not
 > return `NA` in R — it silently returns `0001-09-20`. Declaring the format in
@@ -172,3 +191,4 @@ after running `launch.R`:
 | `plot_scenario_comparison(submission_pre)` | Median + 95 % CI per scenario |
 | `plot_age_breakdown(submission_pre, scenario)` | Age-group breakdown for one scenario |
 | `plot_dose_schedule(doses_df)` | Weekly administered doses by scenario |
+| `plot_adult_protection(adult_prot_high_vacc)` | Adult coverage, residual VE and effective protection over time |

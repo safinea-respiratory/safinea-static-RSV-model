@@ -140,6 +140,40 @@ adult_vaccination:
   #   hold_last - carry the final tabulated value forward
   ve_beyond_curve: "zero"
 
+  # ---- Vaccination campaigns ----
+  #
+  # Coverage is ONE-OFF and CUMULATIVE. The adult product is a single
+  # dose, so nobody is re-vaccinated: each campaign recruits from the
+  # not-yet-vaccinated, and protection from an earlier campaign keeps
+  # decaying along its own VE curve rather than resetting.
+  #
+  # This is the opposite of the infant programme, where each birth
+  # cohort is newly eligible every season.
+  #
+  #   share   - this campaign's portion of the scenario's total target
+  #             coverage. Shares must sum to 1 across campaigns.
+  #             Omit on every campaign to split equally.
+  #   profile - how coverage accrues WITHIN the window.
+  #             "uniform" = equal increment each week.
+  #
+  # NOTE: campaign dates are set for the 2026/27 round. round_id,
+  # submission_horizon_anchor and the infant windows above still refer
+  # to 2025/26 and need migrating alongside the data swap.
+  campaigns:
+    - start:   "2026-09-01"
+      end:     "2026-11-30"
+      share:   1.0
+      profile: "uniform"
+
+  # Cumulative coverage already reflected in the observed baseline data.
+  # Zero at present: no adult RSV vaccination in the observed period.
+  baseline_coverage: 0.00
+
+  # Total cumulative coverage of the eligible population, per scenario.
+  scenarios:
+    no_vacc:   0.00
+    high_vacc: 0.75
+
 
 # ============================================================ #
 # Submission output

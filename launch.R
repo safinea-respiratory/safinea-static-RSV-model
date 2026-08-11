@@ -33,6 +33,7 @@ source("R/utils.R")
 source("R/validate.R")
 source("R/simulate_margins.R")
 source("R/apply_scenario.R")
+source("R/adult_protection.R")
 source("R/load_data.R")
 source("R/format_submission.R")
 source("R/build_doses.R")
@@ -93,6 +94,30 @@ scenario_A_df <- run_scenario(cfg$infant$scenarios$no_vacc)
 scenario_B_df <- run_scenario(cfg$infant$scenarios$high_vacc)
 
 
+# ---- Adult vaccination coverage & protection -------------------
+# Convolves each scenario's campaign uptake with the waning ensemble to
+# give, per (band, week, sample), the cumulative coverage and the
+# coverage-weighted mean residual VE.
+#
+# NOT YET APPLIED to admissions - that is step 4, which routes
+# apply_scenario() by programme. Computed here so the convolution can be
+# inspected via plot_adult_protection() before it changes any output.
+adult_protection <- function(total_coverage) {
+  build_adult_protection(
+    target_weeks        = unique(baseline_df$target_end_date),
+    waning_curves       = adult_waning,
+    campaigns           = cfg$adult$campaigns,
+    total_coverage      = total_coverage,
+    ve_beyond_curve     = cfg$adult$ve_beyond_curve,
+    eligible_age_groups = cfg$adult$eligible_age_groups
+  )
+}
+
+adult_prot_baseline  <- adult_protection(cfg$adult$baseline_coverage)
+adult_prot_no_vacc   <- adult_protection(cfg$adult$scenarios$no_vacc)
+adult_prot_high_vacc <- adult_protection(cfg$adult$scenarios$high_vacc)
+
+
 # ---- RespiCompass submission format ----------------------------
 submission_pre <- assemble_submission(
   baseline_df   = baseline_df,
@@ -125,6 +150,7 @@ submission <- bind_rows(submission_pre, doses_df) %>% as.data.table()
 # plot_age_breakdown(submission_pre, scenario = "baseline",
 #                    age_order = unlist(cfg$age_group_order))
 # plot_dose_schedule(doses_df)
+# plot_adult_protection(adult_prot_high_vacc)
 
 
 # ---- Persist (uncomment to write) ------------------------------

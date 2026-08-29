@@ -22,7 +22,7 @@
 # Also enforces that the infant and adult programmes cover disjoint
 # bands: the two are independent programmes, and a band claimed by both
 # would have its coverage counted twice.
-validate_age_groups <- function(cfg, epi) {
+validate_age_groups <- function(cfg, epi, quiet = FALSE) {
 
   data_bands <- sort(unique(epi$burden$age_group))
 
@@ -63,9 +63,44 @@ validate_age_groups <- function(cfg, epi) {
 
   # ---- data -> config: report only ----
   no_waning <- setdiff(data_bands, cfg$infant$waning_df$age_group)
-  if (length(no_waning) > 0) {
+  if (length(no_waning) > 0 && !quiet) {
     message("Age groups with no infant waning entry (defaulting to 0): ",
             paste(no_waning, collapse = ", "))
+  }
+
+  invisible(TRUE)
+}
+
+
+# Check every configured country resolves in all input files, before any
+# modelling starts - so a typo fails immediately rather than 20 countries
+# into a long run.
+validate_countries <- function(cfg, raw) {
+
+  cs <- cfg$countries_df
+
+  if (nrow(cs) == 0) {
+    stop("No countries configured. Add at least one entry under `countries`.",
+         call. = FALSE)
+  }
+  if (anyDuplicated(cs$iso2) > 0) {
+    dup <- unique(cs$iso2[duplicated(cs$iso2)])
+    stop("Duplicate country iso2 code(s) in config: ",
+         paste(dup, collapse = ", "), call. = FALSE)
+  }
+  if (any(!nzchar(cs$name)) || any(!nzchar(cs$iso2))) {
+    stop("Every entry under `countries` needs a non-empty `name` and `iso2`.",
+         call. = FALSE)
+  }
+
+  # target-data is keyed by full country name, auxiliary-data by ISO2
+  for (k in c("admissions", "burden")) {
+    avail <- unique(raw[[k]]$country)
+    for (nm in cs$name) check_country_present(nm, avail, raw$labels[[k]])
+  }
+  for (k in c("births", "population")) {
+    avail <- unique(raw[[k]]$country)
+    for (cc in cs$iso2) check_country_present(cc, avail, raw$labels[[k]])
   }
 
   invisible(TRUE)
@@ -147,9 +182,10 @@ validate_adult_config <- function(cfg) {
 }
 
 
-# Convenience wrapper: run every check.
-validate_config <- function(cfg, epi) {
-  validate_age_groups(cfg, epi)
+# Run the checks that do not depend on any one country's data. Called
+# once, before the country loop.
+validate_global_config <- function(cfg, raw) {
+  validate_countries(cfg, raw)
   validate_adult_config(cfg)
   invisible(TRUE)
 }

@@ -17,26 +17,23 @@
 # Countries
 #
 # The model runs once per country listed here and binds the results into
-# a single submission table, distinguished by round_id.
+# a single submission table, distinguished by the `location` column.
 #
-# `name` must match the `country` column of both epidemiological input
-# files (28 EU/EEA countries are available); `code` is substituted into
-# round_id_template. Unknown names are a hard error at load, listing
-# what is available.
+# TWO identifiers are needed because RespiCompass is not internally
+# consistent about country naming:
+#   name - full name, used by target-data
+#          (hospitaladmissions.csv, hospitalburden_agegroups.csv)
+#   iso2 - two-letter code, used by auxiliary-data (births, population)
+#          AND emitted as the submission's `location` column
+#
+# Unknown values are a hard error at load, listing what is available.
 # ============================================================ #
+# Add entries to run more countries; any of the 28 in the target data
+# will work. Roughly 19 s per country.
 countries:
-  - {name: "Ireland", code: "IRL"}
-
-# round_id per country. "{code}" is replaced by each country's code.
-round_id_template: "2026_2027_1_RSV_{code}"
-
-# The administered_doses target needs monthly births for each country,
-# and the births file currently covers Ireland only. For a country with
-# no births data:
-#   error - stop with a message naming the country (default)
-#   skip  - warn, and omit that country's administered_doses rows.
-#           Its rsv_hospitalisations rows are unaffected.
-missing_births: "error"
+  - {name: "Ireland",  iso2: "IE"}
+  # - {name: "Austria",  iso2: "AT"}
+  # - {name: "Portugal", iso2: "PT"}
 
 
 # ============================================================ #
@@ -51,6 +48,7 @@ missing_births: "error"
 input_date_formats:
   weekly_counts: "%Y-%m-%d"    # hospitaladmissions.csv        -> target_end_date
   burden_agegroups: "%Y-%m-%d" # hospitalburden_agegroups.csv  -> start_date / end_date
+  births: "%Y-%m-%d"           # births_by_month.csv           -> date
 
 
 # ============================================================ #
@@ -206,21 +204,26 @@ adult_vaccination:
 # column (weeks since the anchor) in the RespiCompass submission file.
 # The anchor is the first modelled week-ending date, so `horizon`
 # starts at 0. Matches the convention used in the previous round.
-# round_id is built per country from round_id_template above.
+#
+# NOTE: round_id carries no country suffix. hub-config/tasks.json makes
+# `location` a submission column, so the country is identified there
+# rather than in round_id.
+round_id: "2026_2027_1_RSV"
 submission_horizon_anchor: "2026-09-06"
 
 
 # ============================================================ #
 # Births data
 # ============================================================ #
-# Real births data is only available pre-2024 at time of writing.
-# The static model projects the 2023 monthly pattern forward to
-# 2024-2026 as a placeholder (assumes year-on-year stability in the
-# seasonal birth pattern). Replace with projected births when they
-# become available.
-# TODO: replace with real / projected birth series for 2024-2026.
-births_data_cutoff: "2024-01-01"
-births_project_years: [2024, 2025, 2026, 2027]
+# RespiCompass auxiliary-data supplies monthly births already mapped
+# onto the 2026-09 .. 2027-08 scenario period for every country, so the
+# previous forward-projection of a historical pattern is no longer
+# needed and has been removed.
+births_file: "data/population/births_by_month.csv"
+
+# Population by country x age band. Not yet used; needed as the
+# denominator for the adult administered-doses track (step 5).
+population_file: "data/population/population_estimates.csv"
 
 
 # ============================================================ #

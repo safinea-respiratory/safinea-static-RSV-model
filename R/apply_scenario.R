@@ -29,7 +29,13 @@ add_prop_born_in_window <- function(df, vacc_start, vacc_end, age_bounds,
 
   bounds <- age_bounds %>% rename(!!age_col := age_group)
 
-  df %>%
+  # prop_born_in_window is a deterministic function of (age band, week)
+  # alone - it does not depend on the Monte-Carlo sample. Computing it on
+  # the distinct grid and joining back avoids repeating the rowwise work
+  # once per draw, which is an n_draws-fold saving (100x here).
+  key <- df %>% distinct(across(all_of(c(age_col, date_col))))
+
+  key_prop <- key %>%
     left_join(bounds, by = age_col) %>%
     rowwise() %>%
     mutate(
@@ -63,7 +69,51 @@ add_prop_born_in_window <- function(df, vacc_start, vacc_end, age_bounds,
       )
     ) %>%
     ungroup() %>%
-    select(-min_mo, -max_mo, -birth_start, -birth_end, -inter_days, -denom_days)
+    select(all_of(c(age_col, date_col)), prop_born_in_window)
+
+  df %>% left_join(key_prop, by = c(age_col, date_col))
+}
+
+
+# Guard the no-vaccination back-calculation.
+#
+# The counterfactual divides observed admissions by
+# (1 - uptake x prop_born x VE x waning). At the current parameters that
+# bottoms out near 0.22, but an uptake and waning both close to 1 with a
+# high VE draw would divide by ~0 and emit Inf admissions into the
+# submission with no error anywhere.
+# Two thresholds, because there are two distinct failure modes:
+#   floor - at or below zero the counterfactual is mathematically
+#           undefined and emits Inf or negative admissions. Hard error.
+#   warn  - a small positive denominator is valid arithmetic but implies
+#           an implausible inflation factor (1/denom). 0.05 corresponds
+#           to scaling observed admissions up 20-fold.
+check_backcalc_denominator <- function(df, floor = 1e-6, warn_below = 0.05) {
+
+  worst <- suppressWarnings(min(df$denom, na.rm = TRUE))
+  if (!is.finite(worst)) return(df)
+
+  if (worst < floor) {
+    stop("The no-vaccination back-calculation divides by ",
+         "(1 - uptake x prop_born x VE x waning), which reached ",
+         signif(worst, 3), ".",
+         "\n  At or below zero the counterfactual is undefined and would ",
+         "produce Inf or negative admissions.",
+         "\n  Reduce infant_vaccination.baseline_uptake or the ",
+         "waning_by_band values.",
+         call. = FALSE)
+  }
+
+  if (worst < warn_below) {
+    warning("The no-vaccination back-calculation divides by as little as ",
+            signif(worst, 3), ", inflating observed admissions up to ",
+            round(1 / worst), "-fold.",
+            "\n  Check infant_vaccination.baseline_uptake and waning_by_band ",
+            "- this counterfactual is unlikely to be plausible.",
+            call. = FALSE)
+  }
+
+  df
 }
 
 
@@ -101,8 +151,7 @@ apply_scenario <- function(df,
     mutate(vacc_IE = rnorm(1, mean = IE_mean, sd = IE_sd)) %>%
     ungroup() %>%
     # Split each row into vaccinated (yes) and unvaccinated (no) proportions
-    mutate(vacc_uptake = vacc_uptake,
-           yes = vacc_uptake * prop_born_in_window,
+    mutate(yes = vacc_uptake * prop_born_in_window,
            no  = 1 - yes) %>%
     rename(value_total = value) %>%
     pivot_longer(c("yes", "no"), values_to = "proportion", names_to = "immunisation") %>%
@@ -110,9 +159,11 @@ apply_scenario <- function(df,
     # A band with no waning entry is one this programme does not reach
     mutate(waning = coalesce(waning, 0)) %>%
     # Back-calculate the no-vaccination counterfactual from the observed data
-    mutate(value_total_no_vax =
-             value_total / (1 - (vacc_uptake_baseline * prop_born_in_window) *
-                                (vacc_IE * waning))) %>%
+    mutate(denom = 1 - (vacc_uptake_baseline * prop_born_in_window) *
+                       (vacc_IE * waning)) %>%
+    check_backcalc_denominator() %>%
+    mutate(value_total_no_vax = value_total / denom) %>%
+    select(-denom) %>%
     # Apply scenario: vaccinated stratum gets the (1 − VE × waning) reduction;
     # unvaccinated stratum remains at full risk (vacc_IE set to 0 for "no" rows)
     mutate(vacc_IE = ifelse(immunisation == "yes", vacc_IE, 0),

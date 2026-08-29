@@ -42,6 +42,17 @@ Weekly aggregate RSV hospitalisations, all ages. One row per (country × week).
 | `week` / `year` | integer | ISO week and year — unused |
 | `weekly_rsv_hospitalisations` | integer | Total RSV hospitalisations that week |
 
+**⚠ ISO week 53 is absent.** The series runs 2026-09-06 → 2027-08-29, which spans
+52 week-endings, but the file supplies **51** — the week ending **2027-01-03** is
+missing for all 28 countries. Consecutive rows are therefore 7 days apart except
+for one 14-day gap.
+
+This is consistent across countries, so it looks like a deliberate 52-week season
+convention rather than corrupt data. Two consequences: `horizon` skips one integer,
+and any births falling in that week cannot be credited to the dose table.
+`build_dose_table()` warns with the exact number rather than dropping them
+silently (1,007 births for Ireland).
+
 **Example**
 
 ```

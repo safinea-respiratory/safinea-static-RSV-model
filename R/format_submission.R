@@ -14,12 +14,9 @@ add_age_totals <- function(df) {
 
 # Reshape a scenario result from apply_scenario() into the column
 # layout needed by assemble_submission().
-# value_real captures the observed admission count before scenario
-# adjustment (value_total from apply_scenario).
 scenario_to_submission_shape <- function(df, scenario_id) {
   df %>%
-    select(target_end_date, age_group, sample, value, immunisation,
-           value_real = value_total) %>%
+    select(target_end_date, age_group, sample, value, immunisation) %>%
     mutate(scenario = scenario_id)
 }
 
@@ -39,7 +36,7 @@ assemble_submission <- function(baseline_df,
                                 round_id, anchor) {
 
   df0 <- baseline_df %>%
-    mutate(immunisation = "no", value_real = value) %>%
+    mutate(immunisation = "no") %>%
     {
       bind_rows(
         .,                                           # unvaccinated row
@@ -47,7 +44,7 @@ assemble_submission <- function(baseline_df,
         mutate(., immunisation = "total")            # total = same as "no"
       )
     } %>%
-    select(target_end_date, age_group, sample, value, immunisation, value_real) %>%
+    select(target_end_date, age_group, sample, value, immunisation) %>%
     mutate(scenario = "baseline")
 
   df1 <- scenario_to_submission_shape(scenario_A_df, "no_vacc")

@@ -9,7 +9,7 @@ user-specified vaccination scenarios. It was developed as part of the 2026/2027
 ## How it works
 
 1. **Load** observed weekly RSV admissions and the age-stratified seasonal burden
-   (both from RespiCompass target-data, 28 EU/EEA countries; `country` selects one).
+   (both from RespiCompass target-data, 28 EU/EEA countries).
 2. **Sample** — for each burden window, draw `n_draws` contingency tables
    of (week × age group) admissions that preserve both marginals exactly
    (`stats::r2dtable`). This captures the uncertainty in how weekly totals
@@ -19,7 +19,13 @@ user-specified vaccination scenarios. It was developed as part of the 2026/2027
    re-applies the scenario uptake combined with a per-draw vaccine effectiveness
    (sampled from a normal distribution) and age-specific waning.
 4. **Format** results into the RespiCompass submission schema and build a
-   parallel administered-doses table driven by projected births.
+   parallel administered-doses table driven by monthly births.
+
+The infant dose track spreads each month's births evenly across its days,
+masks them to the vaccination windows *per day* (so a week straddling a
+boundary is credited only for the days inside it), then re-aggregates to ISO
+weeks. Births that fall in a window but outside the modelled weeks are
+reported with a warning rather than silently dropped.
 
 ---
 
@@ -54,6 +60,37 @@ wiring it in (step 4) leaves the surrounding algebra untouched.
 
 ---
 
+## Multiple countries
+
+The model runs once per country listed in the config and binds the results,
+distinguished by the `location` column:
+
+```yaml
+countries:
+  - {name: "Ireland",  iso2: "IE"}
+  - {name: "Austria",  iso2: "AT"}
+```
+
+Each country is fully independent — its own data, its own sampler draws, its own
+submission rows. Roughly 19 s per country.
+
+**Two identifiers are needed** because RespiCompass is not internally consistent
+about country naming:
+
+| Identifier | Used by |
+|---|---|
+| `name` (`Ireland`) | target-data — `hospitaladmissions.csv`, `hospitalburden_agegroups.csv` |
+| `iso2` (`IE`) | auxiliary-data — births, population — **and** the submission's `location` column |
+
+Every configured country is checked against every input file *before* any
+modelling starts, so a typo fails immediately rather than partway through a long
+run. Unknown values error with the available list.
+
+`mc_seed` is shared across countries, so the vaccine-effectiveness draws are
+common to all of them — defensible, since it is the same vaccine.
+
+---
+
 ## Age bands come from the data
 
 The model does not define age bands. Whatever labels appear in
@@ -76,7 +113,8 @@ data/
     hospitaladmissions.csv        # weekly RSV admissions, all ages
     hospitalburden_agegroups.csv  # seasonal age-stratified burden (defines age bands)
   population/
-    country_monthly_births.csv    # monthly births
+    births_by_month.csv           # monthly births, mapped to the scenario period
+    population_estimates.csv      # population by age band (for adult doses)
   vaccine/
     waning_curves.csv             # adult VE ensemble, 500 curves
 R/
@@ -88,6 +126,7 @@ R/
   load_data.R                     # config, data and waning-curve loaders
   format_submission.R             # RespiCompass submission formatting
   build_doses.R                   # administered-doses table
+  run_model.R                     # per-country pipeline + multi-country driver
   plots.R                         # diagnostic plots
 ```
 
@@ -124,8 +163,9 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 
 | Parameter | Description |
 |-----------|-------------|
-| `country` | Which of the 28 EU/EEA countries to model. Unknown values error with the available list |
+| `countries` | List of `{name, iso2}` to model. Unknown values error with the available list |
 | `input_date_formats` | strptime format for each input CSV's date column. Parsed strictly — see note below |
+| `births_file` / `population_file` | Paths to the auxiliary demographic data |
 | `age_group_aliases` | Optional rename of source age labels. Leave empty if the data already uses the desired labels |
 | `age_group_order` | Display order for plots. Optional; the fallback is alphabetical, which orders age bands wrongly |
 | `round_id` | RespiCompass round identifier |
@@ -179,8 +219,11 @@ Each scenario carries an uptake for **each programme independently**.
 
 `submission` is a `data.table` with columns:
 
-`round_id`, `scenario_id`, `target`, `pop_group`, `horizon`,
+`round_id`, `scenario_id`, `target`, `location`, `pop_group`, `horizon`,
 `target_end_date`, `output_type`, `output_type_id`, `value`
+
+`location` is the ISO2 country code. Per-country intermediates (baseline draws,
+adult protection) are kept in `results$by_country[["IE"]]`.
 
 `target` is either `rsv_hospitalisations` or `administered_doses`.  
 `pop_group` follows the pattern `<age_band>_<imm_status>` (e.g. `0-2mo_immTotal`)

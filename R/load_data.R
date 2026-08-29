@@ -55,8 +55,15 @@ apply_age_aliases <- function(x, aliases) {
 load_config <- function(path = "config/static_model.yaml") {
   cfg <- yaml::read_yaml(path)
 
-  cfg$anchor        <- as.Date(cfg$submission_horizon_anchor)
-  cfg$births_cutoff <- ymd(cfg$births_data_cutoff)
+  cfg$anchor <- as.Date(cfg$submission_horizon_anchor)
+
+  # Countries: full name for target-data, ISO2 for auxiliary-data and
+  # for the submission's `location` column.
+  cfg$countries_df <- data.frame(
+    name = vapply(cfg$countries, function(x) as.character(x$name), character(1)),
+    iso2 = vapply(cfg$countries, function(x) as.character(x$iso2), character(1)),
+    row.names = NULL, stringsAsFactors = FALSE
+  )
 
   # ---- Infant programme (maternal / birth-dose) ----
   inf <- cfg$infant_vaccination
@@ -119,13 +126,45 @@ load_config <- function(path = "config/static_model.yaml") {
 }
 
 
-# Load observed RSV weekly admissions and the age-stratified burden.
+# Read every input CSV once.
 #
-# Both files come from RespiCompass target-data and cover 28 EU/EEA
-# countries; cfg$country selects one. Counts are used directly - unlike
-# the previous national inputs, the burden file gives absolute
-# admissions per band rather than proportions, so no reconstruction from
-# proportions is needed.
+# All four files are country-agnostic; the per-country loaders below just
+# filter these frames. Reading them inside the per-country loop instead
+# would mean 60+ full-file reads for a 28-country run.
+#
+# Returns a list of raw data frames, to be passed to the loaders and to
+# validate_countries().
+load_raw_inputs <- function(
+    cfg,
+    weekly_file = "data/epidemiological/hospitaladmissions.csv",
+    burden_file = "data/epidemiological/hospitalburden_agegroups.csv") {
+
+  read_required <- function(path, label) {
+    if (is.null(path) || !file.exists(path)) {
+      stop(label, " not found: ", if (is.null(path)) "<unset>" else path,
+           call. = FALSE)
+    }
+    read.csv(path)
+  }
+
+  list(
+    admissions = read_required(weekly_file, "Weekly admissions file"),
+    burden     = read_required(burden_file, "Age burden file"),
+    births     = read_required(cfg$births_file, "Births file"),
+    population = read_required(cfg$population_file, "Population file"),
+    labels     = list(admissions = basename(weekly_file),
+                      burden     = basename(burden_file),
+                      births     = basename(cfg$births_file),
+                      population = basename(cfg$population_file))
+  )
+}
+
+
+# Select one country's weekly admissions and age-stratified burden from
+# the raw target-data frames.
+#
+# Counts are used directly: the burden file gives absolute admissions per
+# band rather than proportions, so no reconstruction is needed.
 #
 # Returns a named list:
 #   $admissions — weekly aggregate counts
@@ -144,22 +183,19 @@ load_config <- function(path = "config/static_model.yaml") {
 #
 # Age-group labels come from the data itself; the only transformation
 # applied is the optional alias map from the config.
-load_epidemiological_data <- function(
-    cfg,
-    weekly_file = "data/epidemiological/hospitaladmissions.csv",
-    burden_file = "data/epidemiological/hospitalburden_agegroups.csv") {
+load_epidemiological_data <- function(cfg, country_name, raw) {
 
   fmt_weekly <- cfg$input_date_formats$weekly_counts
   fmt_burden <- cfg$input_date_formats$burden_agegroups
 
-  raw_adm <- read.csv(weekly_file)
-  raw_bur <- read.csv(burden_file)
+  raw_adm <- raw$admissions
+  raw_bur <- raw$burden
 
-  check_country_present(cfg$country, raw_adm$country, basename(weekly_file))
-  check_country_present(cfg$country, raw_bur$country, basename(burden_file))
+  check_country_present(country_name, raw_adm$country, raw$labels$admissions)
+  check_country_present(country_name, raw_bur$country, raw$labels$burden)
 
   admissions <- raw_adm %>%
-    filter(country == cfg$country) %>%
+    filter(country == country_name) %>%
     mutate(target_end_date = parse_dates_strict(
                                target_end_date, fmt_weekly,
                                "hospitaladmissions.csv$target_end_date")) %>%
@@ -168,7 +204,7 @@ load_epidemiological_data <- function(
     setDT()
 
   burden <- raw_bur %>%
-    filter(country == cfg$country) %>%
+    filter(country == country_name) %>%
     mutate(burden_start_date = parse_dates_strict(
                                  start_date, fmt_burden,
                                  "hospitalburden_agegroups.csv$start_date"),
@@ -198,35 +234,37 @@ check_country_present <- function(country, column, file_label) {
 }
 
 
-# Load monthly births and project the 2023 seasonal pattern forward
-# for years where real data is unavailable (births_project_years).
+# Load monthly births for one country.
 #
-# Births data is only available pre-2024 at time of writing.
-# The 2023 monthly pattern is repeated as a placeholder that assumes
-# year-on-year stability in the seasonal birth distribution.
-# Replace with real projected births when they become available.
-load_births_data <- function(
-    cfg,
-    births_file = "data/population/country_monthly_births.csv") {
+# RespiCompass auxiliary-data supplies births already mapped onto the
+# 2026-09 .. 2027-08 scenario period for every country, so no
+# forward-projection of a historical pattern is needed. Keyed by ISO2.
+load_births_data <- function(cfg, country_iso2, raw) {
 
-  births_raw <- read.csv(births_file, fileEncoding = "UTF-8-BOM") %>%
-    mutate(date    = make_date(year  = as.integer(TIME_PERIOD),
-                               month = match(month, month.name),
-                               day   = 1),
-           country = geo,
-           births  = OBS_VALUE) %>%
+  check_country_present(country_iso2, raw$births$country, raw$labels$births)
+
+  raw$births %>%
+    filter(country == country_iso2) %>%
+    mutate(date = parse_dates_strict(date, cfg$input_date_formats$births,
+                                     paste0(raw$labels$births, "$date"))) %>%
     select(country, date, births) %>%
-    filter(!is.na(date), date < cfg$births_cutoff) %>%
-    setDT()
+    arrange(date)
+}
 
-  projected <- map_dfr(
-    cfg$births_project_years,
-    ~ births_raw %>%
-        filter(year(date) == 2023) %>%
-        mutate(date = date + years(.x - 2023))
-  )
 
-  bind_rows(births_raw, projected) %>% arrange(country, date)
+# Load population by country x age band. Keyed by ISO2.
+#
+# Not yet consumed by the model: it is the denominator the adult
+# administered-doses track will need (step 5).
+load_population_data <- function(cfg, country_iso2, raw) {
+
+  check_country_present(country_iso2, raw$population$country,
+                        raw$labels$population)
+
+  raw$population %>%
+    filter(country == country_iso2) %>%
+    mutate(age_group = apply_age_aliases(age_group, cfg$age_group_aliases)) %>%
+    select(country, age_group, population)
 }
 
 

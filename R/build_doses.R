@@ -71,16 +71,16 @@ build_dose_table <- function(baseline_df, births_df,
            value     = coalesce(births, 0)) %>%
     select(target_end_date, value, target, pop_group)
 
-  scale_doses <- function(uptake, scenario_id) {
-    base_doses %>% mutate(value = value * uptake, scenario_id = scenario_id)
-  }
+  # One dose track per configured scenario, scaled by that scenario's
+  # infant uptake. Adult doses are not included yet - they need the
+  # population denominator (step 5).
+  sc <- cfg$scenarios_df
 
   crossing(
-    bind_rows(
-      scale_doses(cfg$infant$baseline_uptake,     "baseline"),
-      scale_doses(cfg$infant$scenarios$no_vacc,   "no_vacc"),
-      scale_doses(cfg$infant$scenarios$high_vacc, "high_vacc")
-    ),
+    bind_rows(lapply(seq_len(nrow(sc)), function(i) {
+      base_doses %>% mutate(value       = value * sc$infant_uptake[i],
+                            scenario_id = sc$id[i])
+    })),
     round_id       = round_id,
     output_type    = "sample",
     output_type_id = output_type_ids

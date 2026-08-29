@@ -117,61 +117,112 @@ check_backcalc_denominator <- function(df, floor = 1e-6, warn_below = 0.05) {
 }
 
 
-# Apply an INFANT vaccination scenario to baseline Monte-Carlo samples.
+# INFANT protection table.
 #
-# Steps:
-#   1. Compute the fraction of each age cohort born in a vaccination window.
-#   2. Draw one vaccine effectiveness (VE) per sample from N(IE_mean, IE_sd).
-#   3. Back-calculate the no-vaccination counterfactual from the observed data
-#      using vacc_uptake_baseline (the uptake already reflected in the data).
-#   4. Re-apply the scenario uptake to produce yes / no / total strata.
+# Emits the same two-column contract as build_adult_protection():
+#   coverage    – fraction of the cell vaccinated
+#   residual_ve – protection still held by a vaccinated individual
 #
-# Parameters:
-#   df                   – baseline_df from simulate_weekly_age_fixed_margins
-#   IE_mean / IE_sd      – vaccine effectiveness distribution parameters
-#   vacc_uptake          – scenario uptake to apply (0–1)
-#   vacc_start/vacc_end  – Date vectors (one element per season)
-#   vacc_uptake_baseline – uptake already embedded in the observed baseline
-#   waning_df            – data.frame(age_group, waning); waning ∈ [0,1]
-#                          where 1 = full initial protection, 0 = none left.
-#                          Bands absent from waning_df default to 0.
-#   age_bounds           – data.frame(age_group, min_mo, max_mo)
-apply_scenario <- function(df,
-                           IE_mean, IE_sd,
-                           vacc_uptake,
-                           vacc_start, vacc_end,
-                           vacc_uptake_baseline = 0,
-                           waning_df,
-                           age_bounds) {
+# For this product coverage comes from the birth-cohort overlap with the
+# vaccination windows, and residual VE from the age band (age being the
+# same thing as time-since-dose here).
+#
+# ve_draws: data.frame(sample, vacc_IE), drawn once per country and shared
+#   across scenarios so a given sample index means the same VE world in
+#   every scenario.
+build_infant_protection <- function(grid, uptake, vacc_start, vacc_end,
+                                    age_bounds, waning_df, ve_draws) {
 
-  df %>%
+  # Emit rows ONLY for bands this programme covers. Returning a row for
+  # every band would collide with the adult table on bind_rows(), giving
+  # two rows per key and silently multiplying admissions in the join.
+  grid %>%
+    filter(age_group %in% age_bounds$age_group) %>%
     add_prop_born_in_window(vacc_start, vacc_end, age_bounds) %>%
-    # One VE draw per sample (shared across all age groups in that draw)
-    group_by(sample) %>%
-    mutate(vacc_IE = rnorm(1, mean = IE_mean, sd = IE_sd)) %>%
-    ungroup() %>%
-    # Split each row into vaccinated (yes) and unvaccinated (no) proportions
-    mutate(yes = vacc_uptake * prop_born_in_window,
-           no  = 1 - yes) %>%
-    rename(value_total = value) %>%
-    pivot_longer(c("yes", "no"), values_to = "proportion", names_to = "immunisation") %>%
     left_join(waning_df, by = "age_group") %>%
     # A band with no waning entry is one this programme does not reach
     mutate(waning = coalesce(waning, 0)) %>%
+    left_join(ve_draws, by = "sample") %>%
+    mutate(coverage    = uptake * prop_born_in_window,
+           residual_ve = vacc_IE * waning) %>%
+    select(age_group, target_end_date, sample, coverage, residual_ve)
+}
+
+
+# A protection table must carry at most one row per
+# (age_group, target_end_date, sample). Duplicates mean two programmes
+# claimed the same band, and a left_join would multiply admissions
+# instead of failing.
+check_protection_unique <- function(protection, label) {
+  key  <- c("age_group", "target_end_date", "sample")
+  dups <- protection %>%
+    count(across(all_of(key))) %>%
+    filter(n > 1)
+
+  if (nrow(dups) > 0) {
+    bands <- sort(unique(dups$age_group))
+    stop("The ", label, " protection table has duplicate rows for ",
+         nrow(dups), " (age_group, week, sample) key(s).",
+         "\n  Affected age group(s): ", paste(bands, collapse = ", "),
+         "\n  Each age band must be claimed by at most one programme; a ",
+         "duplicate would multiply admissions in the join.",
+         call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+
+# Apply a vaccination scenario to baseline Monte-Carlo samples.
+#
+# Programme-agnostic: it consumes protection tables and knows nothing
+# about birth cohorts, campaigns or waning curves. Each programme derives
+# its own (coverage, residual_ve) independently; because the config
+# forces the two to cover disjoint age bands, they can simply be
+# bind_rows()-ed together before being passed in.
+#
+# Bands covered by no programme are absent from the tables and default to
+# zero coverage, so they pass through at their observed values.
+#
+# The arithmetic:
+#   no_vax = observed / (1 - coverage_base x residual_ve_base)
+#   yes    = (1 - residual_ve) x coverage       x no_vax
+#   no     =                     (1 - coverage) x no_vax
+#   total  = yes + no
+#
+# Parameters:
+#   df                  – baseline_df from simulate_weekly_age_fixed_margins
+#   protection          – scenario protection table (age_group,
+#                         target_end_date, sample, coverage, residual_ve)
+#   protection_baseline – same shape, at the coverage already embedded in
+#                         the observed data. Drives the back-calculation.
+apply_scenario <- function(df, protection, protection_baseline) {
+
+  key <- c("age_group", "target_end_date", "sample")
+
+  # A duplicated key would silently multiply admissions in the joins
+  # below rather than erroring - the two programmes must not both claim
+  # a band. Cheap to check, and the failure is otherwise invisible.
+  check_protection_unique(protection,          "scenario")
+  check_protection_unique(protection_baseline, "baseline")
+
+  df %>%
+    rename(value_total = value) %>%
+    left_join(protection, by = key) %>%
+    left_join(protection_baseline %>%
+                rename(coverage_base = coverage, residual_ve_base = residual_ve),
+              by = key) %>%
+    mutate(across(c(coverage, residual_ve, coverage_base, residual_ve_base),
+                  ~ coalesce(.x, 0))) %>%
     # Back-calculate the no-vaccination counterfactual from the observed data
-    mutate(denom = 1 - (vacc_uptake_baseline * prop_born_in_window) *
-                       (vacc_IE * waning)) %>%
+    mutate(denom = 1 - coverage_base * residual_ve_base) %>%
     check_backcalc_denominator() %>%
     mutate(value_total_no_vax = value_total / denom) %>%
-    select(-denom) %>%
-    # Apply scenario: vaccinated stratum gets the (1 − VE × waning) reduction;
-    # unvaccinated stratum remains at full risk (vacc_IE set to 0 for "no" rows)
-    mutate(vacc_IE = ifelse(immunisation == "yes", vacc_IE, 0),
-           value   = (1 - vacc_IE * waning) * proportion * value_total_no_vax) %>%
-    select(-proportion, -vacc_IE) %>%
-    pivot_wider(names_from = "immunisation", values_from = "value") %>%
-    group_by(target_end_date, age_group, sample) %>%
-    mutate(total = yes + no) %>%
-    ungroup() %>%
-    pivot_longer(c("yes", "no", "total"), values_to = "value", names_to = "immunisation")
+    # Stratify: the vaccinated fraction carries the (1 - residual VE)
+    # reduction, the unvaccinated fraction stays at full risk
+    mutate(yes = (1 - residual_ve) * coverage       * value_total_no_vax,
+           no  =                     (1 - coverage) * value_total_no_vax,
+           total = yes + no) %>%
+    select(-denom, -coverage, -residual_ve, -coverage_base, -residual_ve_base) %>%
+    pivot_longer(c("yes", "no", "total"),
+                 values_to = "value", names_to = "immunisation")
 }

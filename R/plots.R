@@ -76,11 +76,11 @@ plot_scenario_comparison <- function(submission_df) {
 # scenario. Use this to check that age-disaggregation produces a
 # clinically plausible profile (e.g., infant groups peak earlier and
 # higher relative to their population size).
-# scenario:  one of "baseline", "no_vacc", "high_vacc"
+# scenario:  a scenario_id from the config's `scenarios` block
 # age_order: display order for the age bands, normally cfg$age_group_order.
 #            Defaults to alphabetical, which orders age bands wrongly -
 #            pass the config value to get a sensible axis.
-plot_age_breakdown <- function(submission_df, scenario = "baseline",
+plot_age_breakdown <- function(submission_df, scenario = "no_vacc",
                                age_order = NULL) {
 
   # pop_group format is "<age>_immTotal" for age-specific total rows
@@ -110,12 +110,7 @@ plot_age_breakdown <- function(submission_df, scenario = "baseline",
 }
 
 
-# ---- Plot 4: Weekly administered dose schedule --------------------------
-# Shows the weekly number of RSV immunisation doses per scenario.
-# Doses are derived from projected births × scenario uptake and are
-# zero outside the vaccination windows. Use this to sanity-check that
-# the window logic and birth projections look sensible before submitting.
-# ---- Plot 5: Adult campaign coverage and protection ---------------------
+# ---- Plot 4: Adult campaign coverage and protection ---------------------
 # Shows the three quantities produced by the adult convolution, for one
 # eligible age band:
 #
@@ -165,6 +160,14 @@ plot_adult_protection <- function(protection_df, age_group_to_plot = NULL) {
 }
 
 
+# ---- Plot 5: Weekly administered dose schedule --------------------------
+# Shows the weekly number of infant RSV immunisation doses per scenario.
+# Doses are births spread across their days, masked to the vaccination
+# windows and scaled by each scenario's infant uptake. Use this to
+# sanity-check that the window logic and birth data line up.
+#
+# With infant uptake zero in every scenario (the 2026/27 round), this
+# plot is flat at zero - expected, not a bug.
 plot_dose_schedule <- function(doses_df) {
   doses_df %>%
     distinct(scenario_id, target_end_date, value) %>%

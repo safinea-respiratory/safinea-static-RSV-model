@@ -91,8 +91,17 @@ load_config <- function(path = "config/static_model.yaml") {
     age_bounds      = age_bounds,
     vacc_start      = ymd(unlist(inf$windows$start)),
     vacc_end        = ymd(unlist(inf$windows$end)),
-    baseline_uptake = inf$baseline_uptake,
-    scenarios       = inf$scenarios
+    baseline_uptake = inf$baseline_uptake
+  )
+
+  # ---- Scenarios ----
+  # One row per submitted scenario. Both programmes are set independently,
+  # so any combination of infant and adult uptake is expressible.
+  cfg$scenarios_df <- data.frame(
+    id             = vapply(cfg$scenarios, function(s) as.character(s$id), character(1)),
+    infant_uptake  = vapply(cfg$scenarios, function(s) as.numeric(s$infant_uptake), numeric(1)),
+    adult_coverage = vapply(cfg$scenarios, function(s) as.numeric(s$adult_coverage), numeric(1)),
+    row.names = NULL, stringsAsFactors = FALSE
   )
 
   # ---- Adult programme (calendar campaign) ----
@@ -118,8 +127,7 @@ load_config <- function(path = "config/static_model.yaml") {
     ve_target           = adu$ve_target,
     ve_beyond_curve     = adu$ve_beyond_curve,
     campaigns           = campaigns,
-    baseline_coverage   = adu$baseline_coverage,
-    scenarios           = adu$scenarios
+    baseline_coverage   = adu$baseline_coverage
   )
 
   cfg

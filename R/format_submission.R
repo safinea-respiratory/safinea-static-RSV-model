@@ -21,36 +21,21 @@ scenario_to_submission_shape <- function(df, scenario_id) {
 }
 
 
-# Combine all scenario results into the RespiCompass submission format.
+# Combine scenario results into the RespiCompass submission format.
 #
-# The baseline scenario has no RSV-vaccination stratum in the historical
-# data, so it is exposed as immunisation = "no". Synthetic "yes" = 0
-# and "total" = "no" rows are added so the schema shape is identical to
-# the counterfactual scenarios (which do carry yes/no/total).
+# scenario_results: named list of apply_scenario() outputs, keyed by the
+#   scenario_id to emit. Any number of scenarios is supported; the set is
+#   driven entirely by the `scenarios` block in the config.
+#
+# A zero-coverage scenario needs no special handling: apply_scenario()
+# already gives it yes = 0 and no = total = observed.
 #
 # Final columns:
 #   round_id, scenario_id, target, pop_group, horizon,
 #   target_end_date, output_type, output_type_id, value
-assemble_submission <- function(baseline_df,
-                                scenario_A_df, scenario_B_df,
-                                round_id, anchor) {
+assemble_submission <- function(scenario_results, round_id, anchor) {
 
-  df0 <- baseline_df %>%
-    mutate(immunisation = "no") %>%
-    {
-      bind_rows(
-        .,                                           # unvaccinated row
-        mutate(., immunisation = "yes", value = 0), # synthetic vaccinated row (zero)
-        mutate(., immunisation = "total")            # total = same as "no"
-      )
-    } %>%
-    select(target_end_date, age_group, sample, value, immunisation) %>%
-    mutate(scenario = "baseline")
-
-  df1 <- scenario_to_submission_shape(scenario_A_df, "no_vacc")
-  df2 <- scenario_to_submission_shape(scenario_B_df, "high_vacc")
-
-  bind_rows(df0, df1, df2) %>%
+  imap_dfr(scenario_results, ~ scenario_to_submission_shape(.x, .y)) %>%
     mutate(target         = "rsv_hospitalisations",
            horizon        = as.integer((target_end_date - anchor) / 7),
            round_id       = round_id,

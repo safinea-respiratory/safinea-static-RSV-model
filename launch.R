@@ -72,11 +72,11 @@ submission <- results$submission
 # plot_baseline_samples(ie$baseline_df)
 # plot_scenario_comparison(submission %>% filter(location == "IE"))
 # plot_age_breakdown(submission %>% filter(location == "IE"),
-#                    scenario  = "baseline",
+#                    scenario  = "no_vacc",
 #                    age_order = unlist(cfg$age_group_order))
 # plot_dose_schedule(submission %>% filter(location == "IE",
 #                                          target == "administered_doses"))
-# plot_adult_protection(ie$adult_protection$high_vacc)
+# plot_adult_protection(ie$adult_protection$adult_70)
 
 
 # ---- Persist (uncomment to write) ------------------------------

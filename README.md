@@ -42,7 +42,7 @@ disjoint age bands.
 | Waning source | `waning_by_band` in the config | `data/vaccine/waning_curves.csv` |
 | Uncertainty | Parametric draw on `vacc_IE` | Empirical — one whole curve per sample |
 | Coverage accrual | Per season, birth-driven | One-off and cumulative across seasons |
-| Status | Applied to admissions | **Coverage computed, not yet applied** |
+| Status | Wired, dormant this round (uptake 0) | **Applied to admissions** |
 
 The adult programme's coverage and residual VE are produced by convolving the
 campaign uptake curve with the VE ensemble:
@@ -54,9 +54,21 @@ residual_ve(t) = protection(t) / coverage(t)
 ```
 
 Because expected admissions are *linear* in VE, this coverage-weighted mean is
-exact rather than an approximation. `protection(t)` is precisely the
-`coverage × residual_VE` term the scenario arithmetic needs, which is why
-wiring it in (step 4) leaves the surrounding algebra untouched.
+exact rather than an approximation.
+
+Both programmes emit the **same two-column contract** — `coverage` and
+`residual_ve` per (age band, week, sample) — and because the config forces them
+onto disjoint bands, the two tables are simply stacked. `apply_scenario()` then
+knows nothing about birth cohorts or campaigns; it just runs:
+
+```
+no_vax = observed / (1 − coverage_baseline × residual_ve_baseline)
+yes    = (1 − residual_ve) × coverage       × no_vax
+no     =                     (1 − coverage) × no_vax
+```
+
+Bands covered by neither programme are absent from both tables, default to zero
+coverage, and pass through at their observed values.
 
 ---
 
@@ -168,6 +180,7 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `births_file` / `population_file` | Paths to the auxiliary demographic data |
 | `age_group_aliases` | Optional rename of source age labels. Leave empty if the data already uses the desired labels |
 | `age_group_order` | Display order for plots. Optional; the fallback is alphabetical, which orders age bands wrongly |
+| `scenarios` | List of `{id, infant_uptake, adult_coverage}`. Drives the whole scenario set — `id` becomes `scenario_id` in the submission |
 | `round_id` | RespiCompass round identifier |
 | `submission_horizon_anchor` | Anchor date for computing the `horizon` column |
 | `n_draws` / `mc_seed` | Monte-Carlo sample count and RNG seed |
@@ -181,8 +194,7 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `waning_by_band` | Residual protection per age band (1 = full initial protection, 0 = none left). Bands not listed default to 0 |
 | `age_bounds` | Age span of each band in months. List every band the programme has reached, **including fully-waned ones** — these bounds also drive the vaccinated/unvaccinated split |
 | `windows` | Vaccination window dates (one entry per season) |
-| `baseline_uptake` | Uptake already reflected in the observed data |
-| `scenarios` | Per-scenario uptake |
+| `baseline_uptake` | Uptake already reflected in the observed data (0 this round) |
 
 **`adult_vaccination`**
 
@@ -193,8 +205,7 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `ve_target` | Which VE column to use (`VE_sev`) |
 | `ve_beyond_curve` | Protection past month 36 — `zero` or `hold_last` |
 | `campaigns` | Campaign windows with `share` (portion of total coverage, must sum to 1) and `profile` (`uniform`) |
-| `baseline_coverage` | Cumulative coverage already reflected in the observed data |
-| `scenarios` | Total cumulative coverage of the eligible population, per scenario |
+| `baseline_coverage` | Adult coverage already reflected in the observed data (0 this round) |
 
 > **Dates are declared, never guessed.** `as.Date("01/09/2025")` does not
 > return `NA` in R — it silently returns `0001-09-20`. Declaring the format in
@@ -205,13 +216,33 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 
 ## Scenarios
 
-Each scenario carries an uptake for **each programme independently**.
+Scenarios are defined entirely by the `scenarios` block in the config — any
+number, with each programme's uptake set independently. The 2026/27 round
+varies adult coverage of 65+ against a no-vaccination reference:
 
-| Scenario | Infant uptake | Adult coverage | Purpose |
+| `scenario_id` | Infant uptake | Adult coverage | Purpose |
 |----------|---------------|----------------|---------|
-| `baseline` | observed (83 %) | observed (0 %) | Observed data expressed in submission format |
-| `no_vacc` | 0 % | 0 % | Counterfactual — no RSV vaccination |
-| `high_vacc` | 95 % | 75 % | Counterfactual — high uptake in both programmes |
+| `no_vacc` | 0 % | 0 % | Reference — no vaccination. Reproduces the observed data exactly |
+| `adult_20` | 0 % | 20 % | Low adult uptake |
+| `adult_70` | 0 % | 70 % | High adult uptake |
+
+Infant uptake is zero throughout: the infant programme is out of scope this
+round, so infant age bands pass through at their observed values. Its machinery
+is retained — give a scenario a non-zero `infant_uptake` and set
+`infant_vaccination.baseline_uptake` to the real coverage to re-enable it.
+
+**Illustrative effect** (Ireland, draw 1). The four adult bands carry 1,380 of
+5,116 admissions:
+
+| Scenario | Adult-band admissions | Averted |
+|---|---|---|
+| `no_vacc` | 1,380 | — |
+| `adult_20` | 1,180 | 200 (14.5 %) |
+| `adult_70` | 679 | 701 (50.8 %) |
+
+The effect is exactly linear in coverage — 0.7/0.2 = 3.5, and 701/200 = 3.5 —
+because expected admissions are linear in VE, so the coverage-weighted mean is
+exact rather than approximate.
 
 ---
 
@@ -245,4 +276,4 @@ after running `launch.R`:
 | `plot_scenario_comparison(submission_pre)` | Median + 95 % CI per scenario |
 | `plot_age_breakdown(submission_pre, scenario)` | Age-group breakdown for one scenario |
 | `plot_dose_schedule(doses_df)` | Weekly administered doses by scenario |
-| `plot_adult_protection(adult_prot_high_vacc)` | Adult coverage, residual VE and effective protection over time |
+| `plot_adult_protection(ie$adult_protection$adult_70)` | Adult coverage, residual VE and effective protection over time |

@@ -168,14 +168,51 @@ validate_adult_config <- function(cfg) {
     }
   }
 
-  # ---- coverage levels ----
-  covs <- c(baseline = cfg$adult$baseline_coverage,
-            unlist(cfg$adult$scenarios))
-  bad  <- covs[!is.na(covs) & (covs < 0 | covs > 1)]
-  if (length(bad) > 0) {
-    stop("Adult coverage values must lie in [0, 1]:\n  ",
-         paste0(names(bad), " = ", bad, collapse = "\n  "),
+  if (!isTRUE(cfg$adult$baseline_coverage >= 0 &&
+              cfg$adult$baseline_coverage <= 1)) {
+    stop("adult_vaccination.baseline_coverage must lie in [0, 1]; got ",
+         deparse(cfg$adult$baseline_coverage), call. = FALSE)
+  }
+
+  invisible(TRUE)
+}
+
+
+# Validate the scenario table.
+validate_scenarios <- function(cfg) {
+
+  sc <- cfg$scenarios_df
+
+  if (nrow(sc) == 0) {
+    stop("No scenarios configured. Add at least one entry under `scenarios`.",
          call. = FALSE)
+  }
+  if (anyDuplicated(sc$id) > 0) {
+    stop("Duplicate scenario id(s): ",
+         paste(unique(sc$id[duplicated(sc$id)]), collapse = ", "),
+         call. = FALSE)
+  }
+  if (any(!nzchar(sc$id))) {
+    stop("Every scenario needs a non-empty `id`.", call. = FALSE)
+  }
+
+  for (col in c("infant_uptake", "adult_coverage")) {
+    v   <- sc[[col]]
+    bad <- which(is.na(v) | v < 0 | v > 1)
+    if (length(bad) > 0) {
+      stop("scenarios: `", col, "` must lie in [0, 1].\n  Offending: ",
+           paste0(sc$id[bad], " = ", v[bad], collapse = ", "),
+           call. = FALSE)
+    }
+  }
+
+  # A scenario asking for adult coverage with no eligible bands would
+  # silently have no effect.
+  if (any(sc$adult_coverage > 0) &&
+      length(cfg$adult$eligible_age_groups) == 0) {
+    stop("Scenario(s) set adult_coverage > 0 but ",
+         "adult_vaccination.eligible_age_groups is empty, so the coverage ",
+         "would have no effect.", call. = FALSE)
   }
 
   invisible(TRUE)
@@ -187,5 +224,6 @@ validate_adult_config <- function(cfg) {
 validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
   validate_adult_config(cfg)
+  validate_scenarios(cfg)
   invisible(TRUE)
 }

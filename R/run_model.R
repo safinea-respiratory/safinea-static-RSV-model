@@ -38,27 +38,55 @@ run_country <- function(cfg, country_name, country_iso2,
          "available data.", call. = FALSE)
   }
 
-  # ---- Infant vaccination scenarios ----
-  run_scenario <- function(uptake) {
-    apply_scenario(
-      df                   = baseline_df,
-      IE_mean              = cfg$infant$vacc_IE_mean,
-      IE_sd                = cfg$infant$vacc_IE_sd,
-      vacc_uptake          = uptake,
-      vacc_start           = cfg$infant$vacc_start,
-      vacc_end             = cfg$infant$vacc_end,
-      vacc_uptake_baseline = cfg$infant$baseline_uptake,
-      waning_df            = cfg$infant$waning_df,
-      age_bounds           = cfg$infant$age_bounds
+  # ---- Protection tables ----
+  # Both programmes emit the same (coverage, residual_ve) contract, and
+  # the config forces them onto disjoint age bands, so the two tables can
+  # simply be stacked. apply_scenario() then needs to know nothing about
+  # birth cohorts or campaigns.
+  grid  <- baseline_df %>% distinct(age_group, target_end_date, sample)
+  weeks <- unique(baseline_df$target_end_date)
+
+  # One VE draw per sample, shared across scenarios so a given sample
+  # index means the same VE world in every arm.
+  ve_draws <- tibble(
+    sample  = sort(unique(baseline_df$sample)),
+    vacc_IE = rnorm(length(unique(baseline_df$sample)),
+                    mean = cfg$infant$vacc_IE_mean,
+                    sd   = cfg$infant$vacc_IE_sd)
+  )
+
+  protection_for <- function(infant_uptake, adult_coverage) {
+    bind_rows(
+      build_infant_protection(grid, infant_uptake,
+                              cfg$infant$vacc_start, cfg$infant$vacc_end,
+                              cfg$infant$age_bounds, cfg$infant$waning_df,
+                              ve_draws),
+      build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
+                             adult_coverage, cfg$adult$ve_beyond_curve,
+                             cfg$adult$eligible_age_groups)
     )
   }
 
+  # Coverage already embedded in the observed data - drives the
+  # back-calculation for every scenario.
+  protection_baseline <- protection_for(cfg$infant$baseline_uptake,
+                                        cfg$adult$baseline_coverage)
+
+  # ---- Scenarios ----
+  sc <- cfg$scenarios_df
+  scenario_results <- setNames(
+    lapply(seq_len(nrow(sc)), function(i) {
+      apply_scenario(baseline_df,
+                     protection_for(sc$infant_uptake[i], sc$adult_coverage[i]),
+                     protection_baseline)
+    }),
+    sc$id
+  )
+
   submission_pre <- assemble_submission(
-    baseline_df   = baseline_df,
-    scenario_A_df = run_scenario(cfg$infant$scenarios$no_vacc),
-    scenario_B_df = run_scenario(cfg$infant$scenarios$high_vacc),
-    round_id      = cfg$round_id,
-    anchor        = cfg$anchor
+    scenario_results = scenario_results,
+    round_id         = cfg$round_id,
+    anchor           = cfg$anchor
   )
 
   # ---- Administered doses ----
@@ -73,29 +101,25 @@ run_country <- function(cfg, country_name, country_iso2,
     output_type_ids = unique(submission_pre$output_type_id)
   )
 
-  # ---- Adult coverage & protection (computed, not yet applied) ----
-  adult_prot <- function(total_coverage) {
-    build_adult_protection(
-      target_weeks        = unique(baseline_df$target_end_date),
-      waning_curves       = adult_waning,
-      campaigns           = cfg$adult$campaigns,
-      total_coverage      = total_coverage,
-      ve_beyond_curve     = cfg$adult$ve_beyond_curve,
-      eligible_age_groups = cfg$adult$eligible_age_groups
-    )
-  }
-
   submission <- bind_rows(submission_pre, doses_df) %>%
     mutate(location = country_iso2)
 
+  # Adult coverage / residual VE per scenario, kept for inspection via
+  # plot_adult_protection(). These now feed the admissions above rather
+  # than sitting unused.
+  adult_protection <- setNames(
+    lapply(seq_len(nrow(sc)), function(i) {
+      build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
+                             sc$adult_coverage[i], cfg$adult$ve_beyond_curve,
+                             cfg$adult$eligible_age_groups)
+    }),
+    sc$id
+  )
+
   list(
-    submission  = submission,
-    baseline_df = baseline_df,
-    adult_protection = list(
-      baseline  = adult_prot(cfg$adult$baseline_coverage),
-      no_vacc   = adult_prot(cfg$adult$scenarios$no_vacc),
-      high_vacc = adult_prot(cfg$adult$scenarios$high_vacc)
-    )
+    submission       = submission,
+    baseline_df      = baseline_df,
+    adult_protection = adult_protection
   )
 }
 

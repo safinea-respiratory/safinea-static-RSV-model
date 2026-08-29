@@ -123,12 +123,13 @@ infant_vaccination:
   # Uptake reflected in the observed baseline data. The scenario
   # machinery back-calculates the no-vaccination counterfactual using
   # this value, then re-applies the scenario uptake.
-  baseline_uptake: 0.83
-
-  # Per-scenario uptake in the eligible group(s).
-  scenarios:
-    no_vacc:   0.00
-    high_vacc: 0.95
+  #
+  # ZERO for the 2026/27 round: the infant programme is not in scope, so
+  # the observed data is taken at face value and infant age bands pass
+  # through unchanged (the back-calculation denominator becomes 1).
+  # The machinery is retained for future rounds - set this to the real
+  # coverage and give scenarios a non-zero infant_uptake to re-enable it.
+  baseline_uptake: 0.00
 
 
 # ============================================================ #
@@ -188,13 +189,35 @@ adult_vaccination:
       profile: "uniform"
 
   # Cumulative coverage already reflected in the observed baseline data.
-  # Zero at present: no adult RSV vaccination in the observed period.
+  # Zero: no adult RSV vaccination in the observed period.
   baseline_coverage: 0.00
 
-  # Total cumulative coverage of the eligible population, per scenario.
-  scenarios:
-    no_vacc:   0.00
-    high_vacc: 0.75
+
+# ============================================================ #
+# Scenarios
+#
+# One entry per submitted scenario. `id` becomes the submission's
+# scenario_id, and each scenario sets the uptake for BOTH programmes -
+# they are independent, so any combination is expressible.
+#
+# infant_uptake  fraction of the eligible birth cohort vaccinated
+# adult_coverage cumulative fraction of adult_vaccination.eligible_age_groups
+#                vaccinated across all campaigns
+#
+# 2026/27 round: adult vaccination of 65+ at two uptake levels, against a
+# no-vaccination reference. Infant uptake is zero throughout - the infant
+# programme is out of scope this round but kept wired for later use.
+# ============================================================ #
+scenarios:
+  - id: "no_vacc"
+    infant_uptake:  0.00
+    adult_coverage: 0.00
+  - id: "adult_20"
+    infant_uptake:  0.00
+    adult_coverage: 0.20
+  - id: "adult_70"
+    infant_uptake:  0.00
+    adult_coverage: 0.70
 
 
 # ============================================================ #

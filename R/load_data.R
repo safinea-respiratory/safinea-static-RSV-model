@@ -262,8 +262,9 @@ load_births_data <- function(cfg, country_iso2, raw) {
 
 # Load population by country x age band. Keyed by ISO2.
 #
-# Not yet consumed by the model: it is the denominator the adult
-# administered-doses track will need (step 5).
+# The denominator for the adult administered-doses track: weekly adult
+# doses are that week's coverage increment times the combined population
+# of the eligible bands.
 load_population_data <- function(cfg, country_iso2, raw) {
 
   check_country_present(country_iso2, raw$population$country,

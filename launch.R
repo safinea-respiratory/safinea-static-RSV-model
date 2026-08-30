@@ -15,9 +15,9 @@
 # distinguished by the `location` column.
 #
 # The infant and adult vaccination programmes are INDEPENDENT: different
-# products, eligibility rules, waning data and uncertainty models. Only
-# the infant programme is applied at present; adult coverage and
-# residual VE are computed but not yet applied to admissions.
+# products, eligibility rules, waning data and uncertainty models. Both
+# feed admissions and doses. For the 2026/27 round infant uptake is zero
+# in every scenario, so only the adult programme has an effect.
 #
 # Configuration: config/static_model.yaml
 # Run from the project root: Rscript launch.R

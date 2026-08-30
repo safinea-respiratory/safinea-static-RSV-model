@@ -141,8 +141,6 @@ infant_vaccination:
 # one entire curve. There is deliberately NO vacc_IE draw here - the
 # ensemble already carries the uncertainty.
 #
-# NOT YET WIRED INTO THE MODEL. The curves are loaded and validated,
-# but no adult vaccination effect is applied yet.
 # ============================================================ #
 adult_vaccination:
 
@@ -209,15 +207,19 @@ adult_vaccination:
 # programme is out of scope this round but kept wired for later use.
 # ============================================================ #
 scenarios:
-  - id: "no_vacc"
+  - id: "baseline"
     infant_uptake:  0.00
     adult_coverage: 0.00
-  - id: "adult_20"
+  - id: "low_vacc"
     infant_uptake:  0.00
     adult_coverage: 0.20
-  - id: "adult_70"
+  - id: "high_vacc"
     infant_uptake:  0.00
     adult_coverage: 0.70
+  - id: "super_high_vacc"
+    infant_uptake:  0.00
+    adult_coverage: 0.98
+
 
 
 # ============================================================ #

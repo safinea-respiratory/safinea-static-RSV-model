@@ -157,6 +157,7 @@ R/
   format_submission.R             # RespiCompass submission formatting
   build_doses.R                   # administered-doses table
   run_model.R                     # per-country pipeline + multi-country driver
+  submission_output.R             # output validation + parquet writing
   plots.R                         # diagnostic plots
 ```
 
@@ -278,8 +279,29 @@ adult protection) are kept in `results$by_country[["IE"]]`.
 `pop_group` follows the pattern `<age_band>_<imm_status>` (e.g. `0-2mo_immTotal`)
 plus all-ages aggregates (`total_immNo`, `total_immYes`, `total_immTotal`).
 
-Uncomment the `write_parquet` call at the bottom of `launch.R` to persist the
-output to disk.
+### Validation and writing
+
+`launch.R` validates the submission before writing it. The checks are all
+internal — derived from the config and the data, with no external schema:
+
+| Check | Catches |
+|---|---|
+| Required columns present | Structural breakage |
+| No `NA`, `Inf` or negative values | Arithmetic gone wrong upstream |
+| `round_id`, `scenario_id`, `location` match the config | Renamed or stray identifiers |
+| `horizon == (target_end_date − anchor)/7` | Anchor or date drift |
+| No duplicate rows on the identifying key | Join fan-out — the bug class that inflated adult admissions 4× |
+| `immYes + immNo == immTotal` | Broken stratification |
+| `total_*` equals the sum over age bands | Aggregation errors |
+| Grid completeness per target | Dropped rows |
+| `administered_doses` uses only `pop_group = "undefined"` | Target/pop_group mismatch |
+
+All failures are collected and reported **together**, so one run tells you
+everything that is wrong rather than stopping at the first problem.
+
+The file is then written to `output/<round_id>_staticModel.parquet` (~0.9 MB
+for one country), creating the directory if needed. `output/` is gitignored.
+Pass `path` to `write_submission()` to override.
 
 ---
 

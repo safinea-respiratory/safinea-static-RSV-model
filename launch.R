@@ -42,6 +42,7 @@ source("R/load_data.R")
 source("R/format_submission.R")
 source("R/build_doses.R")
 source("R/run_model.R")
+source("R/submission_output.R")
 source("R/plots.R")
 
 
@@ -65,6 +66,13 @@ results    <- run_all_countries(cfg, adult_waning, raw)
 submission <- results$submission
 
 
+# ---- Check the output before anything consumes it ---------------
+# Internal consistency: identifiers match the config, the grid is
+# complete, no duplicates, immYes + immNo == immTotal, and the all-ages
+# totals equal the sum over bands. Errors list every problem at once.
+validate_submission(submission, cfg)
+
+
 # ---- Diagnostic plots (uncomment to view) ----------------------
 # Per-country objects live in results$by_country[["IE"]]
 # ie <- results$by_country[["IE"]]
@@ -79,9 +87,7 @@ submission <- results$submission
 # plot_adult_protection(ie$adult_protection$adult_70)
 
 
-# ---- Persist (uncomment to write) ------------------------------
-# write_parquet(
-#   submission,
-#   "output/respiCompass_2026_2027_results_staticModel.parquet",
-#   compression = "gzip"
-# )
+# ---- Persist ---------------------------------------------------
+# Writes output/<round_id>_staticModel.parquet, creating the directory if
+# needed. Pass `path` to override. output/ is gitignored.
+write_submission(submission, cfg)

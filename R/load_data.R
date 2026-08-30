@@ -94,16 +94,6 @@ load_config <- function(path = "config/static_model.yaml") {
     baseline_uptake = inf$baseline_uptake
   )
 
-  # ---- Scenarios ----
-  # One row per submitted scenario. Both programmes are set independently,
-  # so any combination of infant and adult uptake is expressible.
-  cfg$scenarios_df <- data.frame(
-    id             = vapply(cfg$scenarios, function(s) as.character(s$id), character(1)),
-    infant_uptake  = vapply(cfg$scenarios, function(s) as.numeric(s$infant_uptake), numeric(1)),
-    adult_coverage = vapply(cfg$scenarios, function(s) as.numeric(s$adult_coverage), numeric(1)),
-    row.names = NULL, stringsAsFactors = FALSE
-  )
-
   # ---- Adult programme (calendar campaign) ----
   # No VE level parameter here by design: the waning ensemble carries
   # the uncertainty, one whole curve per Monte-Carlo sample.
@@ -130,7 +120,35 @@ load_config <- function(path = "config/static_model.yaml") {
     baseline_coverage   = adu$baseline_coverage
   )
 
+  # ---- Scenarios ----
+  # One row per submitted scenario. Both programmes are set independently,
+  # so any combination of infant and adult uptake is expressible.
+  #
+  # adult_age_groups is a list-column: a scenario may target its own set
+  # of bands, falling back to the programme-wide default. This makes
+  # targeting strategies comparable at fixed coverage (e.g. 65+ vs 75+).
+  # A tibble is used rather than data.frame because it carries
+  # list-columns cleanly.
+  cfg$scenarios_df <- tibble::tibble(
+    id             = vapply(cfg$scenarios, function(s) as.character(s$id), character(1)),
+    infant_uptake  = vapply(cfg$scenarios, function(s) as.numeric(s$infant_uptake), numeric(1)),
+    adult_coverage = vapply(cfg$scenarios, function(s) as.numeric(s$adult_coverage), numeric(1)),
+    adult_age_groups = lapply(cfg$scenarios, function(s) {
+      if (is.null(s$adult_age_groups)) cfg$adult$eligible_age_groups
+      else unlist(s$adult_age_groups)
+    })
+  )
+
   cfg
+}
+
+
+# Every adult band referenced anywhere: the programme-wide default plus
+# any per-scenario override. Validation and the dose denominator both
+# need the union, not just the default.
+all_adult_bands <- function(cfg) {
+  sort(unique(c(cfg$adult$eligible_age_groups,
+                unlist(cfg$scenarios_df$adult_age_groups))))
 }
 
 

@@ -56,7 +56,9 @@ run_country <- function(cfg, country_name, country_iso2,
                     sd   = cfg$infant$vacc_IE_sd)
   )
 
-  protection_for <- function(infant_uptake, adult_coverage) {
+  # adult_bands varies per scenario: a scenario may retarget the adult
+  # programme (e.g. 75+ instead of 65+) at the same coverage.
+  protection_for <- function(infant_uptake, adult_coverage, adult_bands) {
     bind_rows(
       build_infant_protection(grid, infant_uptake,
                               cfg$infant$vacc_start, cfg$infant$vacc_end,
@@ -64,21 +66,25 @@ run_country <- function(cfg, country_name, country_iso2,
                               ve_draws),
       build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
                              adult_coverage, cfg$adult$ve_beyond_curve,
-                             cfg$adult$eligible_age_groups)
+                             adult_bands)
     )
   }
 
   # Coverage already embedded in the observed data - drives the
-  # back-calculation for every scenario.
+  # back-calculation for every scenario. This uses the programme-wide
+  # bands, not any scenario's override: it describes what actually
+  # happened, not a hypothetical targeting.
   protection_baseline <- protection_for(cfg$infant$baseline_uptake,
-                                        cfg$adult$baseline_coverage)
+                                        cfg$adult$baseline_coverage,
+                                        cfg$adult$eligible_age_groups)
 
   # ---- Scenarios ----
   sc <- cfg$scenarios_df
   scenario_results <- setNames(
     lapply(seq_len(nrow(sc)), function(i) {
       apply_scenario(baseline_df,
-                     protection_for(sc$infant_uptake[i], sc$adult_coverage[i]),
+                     protection_for(sc$infant_uptake[i], sc$adult_coverage[i],
+                                    sc$adult_age_groups[[i]]),
                      protection_baseline)
     }),
     sc$id
@@ -113,7 +119,7 @@ run_country <- function(cfg, country_name, country_iso2,
     lapply(seq_len(nrow(sc)), function(i) {
       build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
                              sc$adult_coverage[i], cfg$adult$ve_beyond_curve,
-                             cfg$adult$eligible_age_groups)
+                             sc$adult_age_groups[[i]])
     }),
     sc$id
   )

@@ -31,6 +31,7 @@ validate_age_groups <- function(cfg, epi, quiet = FALSE) {
     "infant_vaccination.waning_by_band"     = cfg$infant$waning_df$age_group,
     "infant_vaccination.age_bounds"         = cfg$infant$age_bounds$age_group,
     "adult_vaccination.eligible_age_groups" = cfg$adult$eligible_age_groups,
+    "scenarios[].adult_age_groups"          = unlist(cfg$scenarios_df$adult_age_groups),
     "age_group_order"                       = unlist(cfg$age_group_order)
   )
 
@@ -46,18 +47,6 @@ validate_age_groups <- function(cfg, epi, quiet = FALSE) {
          detail,
          "\nAge groups found in the data:\n  ",
          paste(data_bands, collapse = ", "),
-         call. = FALSE)
-  }
-
-  # ---- programme overlap: hard error ----
-  overlap <- intersect(cfg$infant$age_bounds$age_group,
-                       cfg$adult$eligible_age_groups)
-  if (length(overlap) > 0) {
-    stop("The infant and adult programmes are independent and must cover ",
-         "disjoint age groups.\n",
-         "  Claimed by both: ", paste0('"', overlap, '"', collapse = ", "),
-         "\n  infant_vaccination.age_bounds and ",
-         "adult_vaccination.eligible_age_groups must not intersect.",
          call. = FALSE)
   }
 
@@ -206,13 +195,16 @@ validate_scenarios <- function(cfg) {
     }
   }
 
-  # A scenario asking for adult coverage with no eligible bands would
-  # silently have no effect.
-  if (any(sc$adult_coverage > 0) &&
-      length(cfg$adult$eligible_age_groups) == 0) {
-    stop("Scenario(s) set adult_coverage > 0 but ",
-         "adult_vaccination.eligible_age_groups is empty, so the coverage ",
-         "would have no effect.", call. = FALSE)
+  # A scenario asking for adult coverage with no bands to apply it to
+  # would silently have no effect.
+  empty_bands <- vapply(sc$adult_age_groups, length, integer(1)) == 0
+  offenders   <- sc$id[sc$adult_coverage > 0 & empty_bands]
+  if (length(offenders) > 0) {
+    stop("Scenario(s) set adult_coverage > 0 but target no age groups, so ",
+         "the coverage would have no effect: ",
+         paste0('"', offenders, '"', collapse = ", "),
+         "\n  Give them an `adult_age_groups` list, or populate ",
+         "adult_vaccination.eligible_age_groups.", call. = FALSE)
   }
 
   invisible(TRUE)
@@ -227,7 +219,9 @@ validate_scenarios <- function(cfg) {
 # bands, and the dose count would come out too low with no warning.
 validate_population_coverage <- function(cfg, raw) {
 
-  eligible <- cfg$adult$eligible_age_groups
+  # The union across the default and every scenario override - any of
+  # them could end up as a dose denominator.
+  eligible <- all_adult_bands(cfg)
   if (length(eligible) == 0) return(invisible(TRUE))
 
   for (cc in cfg$countries_df$iso2) {
@@ -249,10 +243,49 @@ validate_population_coverage <- function(cfg, raw) {
 }
 
 
+# The two programmes must cover disjoint age bands.
+#
+# This is what makes bind_rows() of the two protection tables safe: a
+# band claimed by both would get two rows per key, and the joins in
+# apply_scenario() would multiply admissions rather than fail. It is
+# checked against the UNION of every adult band referenced anywhere, so a
+# per-scenario override cannot smuggle in a band the infant programme
+# already claims.
+#
+# Config-only - no data needed - so it runs in the global pre-flight
+# rather than per country.
+validate_programme_disjoint <- function(cfg) {
+
+  overlap <- intersect(cfg$infant$age_bounds$age_group, all_adult_bands(cfg))
+  if (length(overlap) > 0) {
+    claimed_by <- vapply(overlap, function(b) {
+      where <- character(0)
+      if (b %in% cfg$adult$eligible_age_groups) {
+        where <- c(where, "adult_vaccination.eligible_age_groups")
+      }
+      hits <- cfg$scenarios_df$id[vapply(cfg$scenarios_df$adult_age_groups,
+                                         function(g) b %in% g, logical(1))]
+      if (length(hits) > 0) {
+        where <- c(where, paste0("scenario(s) ", paste(hits, collapse = ", ")))
+      }
+      paste0('"', b, '" (', paste(where, collapse = "; "), ")")
+    }, character(1))
+
+    stop("The infant and adult programmes are independent and must cover ",
+         "disjoint age groups.\n  Claimed by both:\n    ",
+         paste(claimed_by, collapse = "\n    "),
+         "\n  These bands are already in infant_vaccination.age_bounds.",
+         call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+
 validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
   validate_adult_config(cfg)
   validate_scenarios(cfg)
+  validate_programme_disjoint(cfg)
   validate_population_coverage(cfg, raw)
   invisible(TRUE)
 }

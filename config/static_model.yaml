@@ -198,13 +198,26 @@ adult_vaccination:
 # scenario_id, and each scenario sets the uptake for BOTH programmes -
 # they are independent, so any combination is expressible.
 #
-# infant_uptake  fraction of the eligible birth cohort vaccinated
-# adult_coverage cumulative fraction of adult_vaccination.eligible_age_groups
-#                vaccinated across all campaigns
+# infant_uptake     fraction of the eligible birth cohort vaccinated
+# adult_coverage    cumulative fraction of the adult eligible bands
+#                   vaccinated across all campaigns
+# adult_age_groups  OPTIONAL. Which bands the adult programme targets in
+#                   THIS scenario. Omit to inherit
+#                   adult_vaccination.eligible_age_groups. Use it to
+#                   compare targeting strategies at the same coverage:
 #
-# 2026/27 round: adult vaccination of 65+ at two uptake levels, against a
-# no-vaccination reference. Infant uptake is zero throughout - the infant
-# programme is out of scope this round but kept wired for later use.
+#                     - id: "target_75plus"
+#                       infant_uptake:    0.00
+#                       adult_coverage:   0.70
+#                       adult_age_groups: ["75-79", "80+"]
+#
+#                   Every band named here must exist in the data, must
+#                   not overlap the infant programme, and must be present
+#                   in the population file - all checked at load.
+#
+# 2026/27 round: adult vaccination of 65+ at three uptake levels, against
+# a no-vaccination reference. Infant uptake is zero throughout - the
+# infant programme is out of scope this round but kept wired for later.
 # ============================================================ #
 scenarios:
   - id: "baseline"

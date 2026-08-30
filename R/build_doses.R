@@ -74,19 +74,19 @@ build_dose_table <- function(baseline_df, births_df, population_df,
     mutate(births = coalesce(births, 0)) %>%
     select(target_end_date, births)
 
-  # ---- adult denominator ----
-  # Coverage is applied uniformly across the eligible bands, so the
-  # denominator is their combined population.
-  eligible  <- cfg$adult$eligible_age_groups
-  adult_pop <- population_df %>%
-    filter(age_group %in% eligible) %>%
-    summarise(p = sum(population)) %>%
-    pull(p)
-
   weeks_vec <- dates_df$target_end_date
 
-  # Weekly NEW vaccinees = coverage increment x eligible population.
-  adult_doses_for <- function(coverage) {
+  # ---- adult denominator ----
+  # Coverage is applied uniformly across a scenario's targeted bands, so
+  # the denominator is their combined population. It is computed PER
+  # SCENARIO because scenarios may target different bands - retargeting
+  # from 65+ to 75+ shrinks the denominator as well as the effect.
+  adult_doses_for <- function(coverage, bands) {
+    adult_pop <- population_df %>%
+      filter(age_group %in% bands) %>%
+      summarise(p = sum(population)) %>%
+      pull(p)
+
     sched <- build_campaign_schedule(cfg$adult$campaigns, coverage, weeks_vec)
     tibble(target_end_date = weeks_vec) %>%
       left_join(sched %>% rename(target_end_date = week), by = "target_end_date") %>%
@@ -101,7 +101,8 @@ build_dose_table <- function(baseline_df, births_df, population_df,
   crossing(
     bind_rows(lapply(seq_len(nrow(sc)), function(i) {
       infant_base %>%
-        left_join(adult_doses_for(sc$adult_coverage[i]), by = "target_end_date") %>%
+        left_join(adult_doses_for(sc$adult_coverage[i], sc$adult_age_groups[[i]]),
+                  by = "target_end_date") %>%
         mutate(value       = births * sc$infant_uptake[i] + adult,
                target      = "administered_doses",
                pop_group   = "undefined",

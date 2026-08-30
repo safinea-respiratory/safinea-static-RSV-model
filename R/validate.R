@@ -221,9 +221,38 @@ validate_scenarios <- function(cfg) {
 
 # Run the checks that do not depend on any one country's data. Called
 # once, before the country loop.
+# Every eligible adult band must appear in the population file, for every
+# configured country. A missing band would silently shrink the dose
+# denominator rather than erroring - the sum would just be over fewer
+# bands, and the dose count would come out too low with no warning.
+validate_population_coverage <- function(cfg, raw) {
+
+  eligible <- cfg$adult$eligible_age_groups
+  if (length(eligible) == 0) return(invisible(TRUE))
+
+  for (cc in cfg$countries_df$iso2) {
+    have <- raw$population %>%
+      filter(country == cc) %>%
+      pull(age_group) %>%
+      unique()
+    missing <- setdiff(eligible, have)
+    if (length(missing) > 0) {
+      stop("Population data for \"", cc, "\" is missing age band(s) needed ",
+           "as the adult dose denominator: ",
+           paste0('"', missing, '"', collapse = ", "),
+           "\n  Present for that country: ", paste(sort(have), collapse = ", "),
+           "\n  file: ", raw$labels$population,
+           call. = FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+
 validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
   validate_adult_config(cfg)
   validate_scenarios(cfg)
+  validate_population_coverage(cfg, raw)
   invisible(TRUE)
 }

@@ -161,13 +161,16 @@ plot_adult_protection <- function(protection_df, age_group_to_plot = NULL) {
 
 
 # ---- Plot 5: Weekly administered dose schedule --------------------------
-# Shows the weekly number of infant RSV immunisation doses per scenario.
-# Doses are births spread across their days, masked to the vaccination
-# windows and scaled by each scenario's infant uptake. Use this to
-# sanity-check that the window logic and birth data line up.
+# Shows the weekly number of RSV immunisation doses per scenario, summed
+# across both programmes:
+#   infant – births x that scenario's infant uptake, masked to the
+#            vaccination windows
+#   adult  – eligible population x that week's new coverage increment
 #
-# With infant uptake zero in every scenario (the 2026/27 round), this
-# plot is flat at zero - expected, not a bug.
+# For the 2026/27 round infant uptake is zero, so the whole series is the
+# adult campaign: a flat block across the campaign weeks and zero either
+# side. Use this to check that the campaign window and the population
+# denominator line up.
 plot_dose_schedule <- function(doses_df) {
   doses_df %>%
     distinct(scenario_id, target_end_date, value) %>%

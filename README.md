@@ -19,13 +19,31 @@ user-specified vaccination scenarios. It was developed as part of the 2026/2027
    re-applies the scenario uptake combined with a per-draw vaccine effectiveness
    (sampled from a normal distribution) and age-specific waning.
 4. **Format** results into the RespiCompass submission schema and build a
-   parallel administered-doses table driven by monthly births.
+   parallel administered-doses table covering both programmes.
 
-The infant dose track spreads each month's births evenly across its days,
-masks them to the vaccination windows *per day* (so a week straddling a
-boundary is credited only for the days inside it), then re-aggregates to ISO
-weeks. Births that fall in a window but outside the modelled weeks are
-reported with a warning rather than silently dropped.
+### Administered doses
+
+Both programmes contribute, each against its own denominator:
+
+| | Denominator | Weekly dose count |
+|---|---|---|
+| **Infant** | Monthly births | births × scenario `infant_uptake`, masked to the vaccination windows |
+| **Adult** | Population of `eligible_age_groups` | population × that week's **new** coverage increment |
+
+The adult figure works because coverage is one-off and cumulative — the weekly
+increment *is* the number of people newly vaccinated, which is what a dose
+count means. Over a whole campaign the doses sum to exactly
+`population × adult_coverage`.
+
+The infant track spreads each month's births evenly across its days, masks them
+to the vaccination windows *per day* (so a week straddling a boundary is
+credited only for the days inside it), then re-aggregates to ISO weeks. Births
+falling in a window but outside the modelled weeks are reported with a warning
+rather than silently dropped.
+
+For Ireland 2026/27, `adult_70` gives 597,489 doses over the 13 campaign weeks —
+70 % of the 853,555 people aged 65+ — averting 701 admissions, or roughly **853
+doses per admission averted**.
 
 ---
 
@@ -126,7 +144,7 @@ data/
     hospitalburden_agegroups.csv  # seasonal age-stratified burden (defines age bands)
   population/
     births_by_month.csv           # monthly births, mapped to the scenario period
-    population_estimates.csv      # population by age band (for adult doses)
+    population_estimates.csv      # population by age band — adult dose denominator
   vaccine/
     waning_curves.csv             # adult VE ensemble, 500 curves
 R/

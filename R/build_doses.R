@@ -1,29 +1,34 @@
-# Build the INFANT administered-doses table for all scenarios.
+# Build the administered-doses table for all scenarios.
 #
-# Monthly births are spread evenly across their days, masked to the
-# vaccination windows, then re-aggregated to ISO weeks and scaled by each
-# scenario's uptake.
+# Doses come from BOTH programmes, each with its own denominator:
 #
-# The adult programme will need its own dose track, driven by campaign
-# coverage against an adult population denominator rather than births.
+#   infant – monthly births, spread evenly across their days, masked to
+#            the vaccination windows per day, re-aggregated to ISO weeks
+#            and scaled by the scenario's infant uptake.
+#   adult  – the eligible age bands' population multiplied by that week's
+#            NEW coverage increment from the campaign schedule. Because
+#            coverage is one-off and cumulative, the weekly increment is
+#            exactly the number of people newly vaccinated, which is what
+#            a dose count means.
 #
-# The resulting table is crossed with the submission's output_type_id grid
-# so the dose rows share the same sample-index structure as the
-# hospitalisation rows.
+# The two are summed per week. Doses are deterministic - neither
+# programme's dose count depends on the Monte-Carlo draw - so the result
+# is crossed with the output_type_id grid to match the hospitalisation
+# rows' shape.
 #
 # Parameters:
 #   baseline_df     – output of simulate_weekly_age_fixed_margins, used to
 #                     determine the target_end_date grid for the dose table
 #   births_df       – output of load_births_data(); one row per month, with
 #                     `date` the first of the month
-#   vacc_start/end  – Date vectors (one element per season)
-#   cfg             – parsed config; uses cfg$infant$baseline_uptake and
-#                     cfg$infant$scenarios
+#   population_df   – output of load_population_data(); population by age band
+#   vacc_start/end  – Date vectors (one element per season), infant windows
+#   cfg             – parsed config; uses cfg$scenarios_df, cfg$adult
 #   round_id        – submission round identifier
 #   anchor          – submission horizon anchor date
 #   output_type_ids – character vector of output_type_id values from the
 #                     hospitalisation submission table
-build_dose_table <- function(baseline_df, births_df,
+build_dose_table <- function(baseline_df, births_df, population_df,
                              vacc_start, vacc_end,
                              cfg, round_id, anchor, output_type_ids) {
 
@@ -64,22 +69,44 @@ build_dose_table <- function(baseline_df, births_df,
             "excluded from the dose table.", call. = FALSE)
   }
 
-  base_doses <- dates_df %>%
+  infant_base <- dates_df %>%
     left_join(weekly, by = "target_end_date") %>%
-    mutate(target    = "administered_doses",
-           pop_group = "undefined",
-           value     = coalesce(births, 0)) %>%
-    select(target_end_date, value, target, pop_group)
+    mutate(births = coalesce(births, 0)) %>%
+    select(target_end_date, births)
 
-  # One dose track per configured scenario, scaled by that scenario's
-  # infant uptake. Adult doses are not included yet - they need the
-  # population denominator (step 5).
+  # ---- adult denominator ----
+  # Coverage is applied uniformly across the eligible bands, so the
+  # denominator is their combined population.
+  eligible  <- cfg$adult$eligible_age_groups
+  adult_pop <- population_df %>%
+    filter(age_group %in% eligible) %>%
+    summarise(p = sum(population)) %>%
+    pull(p)
+
+  weeks_vec <- dates_df$target_end_date
+
+  # Weekly NEW vaccinees = coverage increment x eligible population.
+  adult_doses_for <- function(coverage) {
+    sched <- build_campaign_schedule(cfg$adult$campaigns, coverage, weeks_vec)
+    tibble(target_end_date = weeks_vec) %>%
+      left_join(sched %>% rename(target_end_date = week), by = "target_end_date") %>%
+      mutate(adult = coalesce(delta, 0) * adult_pop) %>%
+      select(target_end_date, adult)
+  }
+
+  # One dose track per configured scenario: infant births x infant uptake,
+  # plus adult population x that week's coverage increment.
   sc <- cfg$scenarios_df
 
   crossing(
     bind_rows(lapply(seq_len(nrow(sc)), function(i) {
-      base_doses %>% mutate(value       = value * sc$infant_uptake[i],
-                            scenario_id = sc$id[i])
+      infant_base %>%
+        left_join(adult_doses_for(sc$adult_coverage[i]), by = "target_end_date") %>%
+        mutate(value       = births * sc$infant_uptake[i] + adult,
+               target      = "administered_doses",
+               pop_group   = "undefined",
+               scenario_id = sc$id[i]) %>%
+        select(target_end_date, value, target, pop_group, scenario_id)
     })),
     round_id       = round_id,
     output_type    = "sample",

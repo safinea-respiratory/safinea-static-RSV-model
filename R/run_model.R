@@ -23,6 +23,7 @@ run_country <- function(cfg, country_name, country_iso2,
   epi    <- load_epidemiological_data(cfg, country_name, raw)
   validate_age_groups(cfg, epi, quiet = quiet)
   births <- load_births_data(cfg, country_iso2, raw)
+  popn   <- load_population_data(cfg, country_iso2, raw)
 
   # ---- Baseline Monte-Carlo ----
   baseline_df <- simulate_weekly_age_fixed_margins(
@@ -93,6 +94,7 @@ run_country <- function(cfg, country_name, country_iso2,
   doses_df <- build_dose_table(
     baseline_df     = baseline_df,
     births_df       = births,
+    population_df   = popn,
     vacc_start      = cfg$infant$vacc_start,
     vacc_end        = cfg$infant$vacc_end,
     cfg             = cfg,

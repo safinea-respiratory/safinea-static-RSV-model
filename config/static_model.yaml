@@ -244,8 +244,12 @@ submission_horizon_anchor: "2026-09-06"
 # needed and has been removed.
 births_file: "data/population/births_by_month.csv"
 
-# Population by country x age band. Not yet used; needed as the
-# denominator for the adult administered-doses track (step 5).
+# Population by country x age band. The denominator for the adult
+# administered-doses track: weekly adult doses are that week's coverage
+# increment times the combined population of the eligible bands. Every
+# band in adult_vaccination.eligible_age_groups must be present here for
+# every configured country, or the denominator would silently be too
+# small - checked at load.
 population_file: "data/population/population_estimates.csv"
 
 

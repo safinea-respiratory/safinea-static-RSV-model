@@ -171,14 +171,14 @@ plot_adult_protection <- function(protection_df, age_group_to_plot = NULL) {
 # adult campaign: a flat block across the campaign weeks and zero either
 # side. Use this to check that the campaign window and the population
 # denominator line up.
-# by_age = FALSE plots the all-ages "total" row; TRUE breaks it down by
-# the age band the doses were given to.
+# by_age = FALSE plots the all-ages "undefined" row; TRUE breaks it down
+# by the age band the doses were given to.
 plot_dose_schedule <- function(doses_df, by_age = FALSE) {
 
   if (by_age) {
     return(
       doses_df %>%
-        filter(pop_group != "total") %>%
+        filter(pop_group != "undefined") %>%
         distinct(scenario_id, target_end_date, pop_group, value) %>%
         ggplot(aes(x = target_end_date, y = value, colour = pop_group)) +
         geom_line(linewidth = 0.8) +
@@ -191,7 +191,7 @@ plot_dose_schedule <- function(doses_df, by_age = FALSE) {
   }
 
   doses_df %>%
-    filter(pop_group == "total") %>%
+    filter(pop_group == "undefined") %>%
     distinct(scenario_id, target_end_date, value) %>%
     ggplot(aes(x = target_end_date, y = value, colour = scenario_id)) +
     geom_line(linewidth = 0.8) +

@@ -89,8 +89,10 @@ validate_submission <- function(submission, cfg) {
   }
 
   # ---- pop_group belongs to the right target ----
-  # Doses are age-stratified: each row is an age band, plus one "total"
-  # row per (scenario, week). Hospitalisations use <band>_<immStatus>.
+  # Doses are age-stratified: each row is an age band, plus one
+  # "undefined" all-ages row per (scenario, week). Hospitalisations use
+  # <band>_<immStatus>, whose aggregate is "total_<immStatus>" - note the
+  # two targets use different names for their aggregate row.
   data_bands <- submission %>%
     filter(target == "rsv_hospitalisations", grepl("_imm", pop_group)) %>%
     pull(pop_group) %>% sub("_imm(Yes|No|Total)$", "", .) %>%
@@ -98,10 +100,10 @@ validate_submission <- function(submission, cfg) {
 
   d_bad <- submission %>%
     filter(target == "administered_doses",
-           !pop_group %in% c(data_bands, "total"))
+           !pop_group %in% c(data_bands, "undefined"))
   if (nrow(d_bad) > 0) {
     note(nrow(d_bad), " administered_doses row(s) whose pop_group is ",
-         "neither an age band nor \"total\": ",
+         "neither an age band nor \"undefined\": ",
          paste(head(unique(d_bad$pop_group), 5), collapse = ", "))
   }
   h_bad <- submission %>%
@@ -115,12 +117,12 @@ validate_submission <- function(submission, cfg) {
   # ---- dose totals equal the sum over dose bands ----
   dose_chk <- submission %>%
     filter(target == "administered_doses") %>%
-    mutate(is_total = pop_group == "total") %>%
+    mutate(is_total = pop_group == "undefined") %>%
     group_by(location, scenario_id, horizon, output_type_id) %>%
     summarise(d = abs(sum(value[is_total]) - sum(value[!is_total])),
               .groups = "drop")
   if (safe_max(dose_chk$d) > 1e-6) {
-    note("administered_doses \"total\" rows do not equal the sum over age ",
+    note("administered_doses \"undefined\" rows do not equal the sum over age ",
          "bands in ", sum(dose_chk$d > 1e-6, na.rm = TRUE), " cell(s); worst ",
          signif(safe_max(dose_chk$d), 3))
   }

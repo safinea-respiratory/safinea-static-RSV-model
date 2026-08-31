@@ -137,13 +137,14 @@ build_dose_table <- function(baseline_df, births_df, population_df,
       select(target_end_date, age_group, value, scenario_id)
   }))
 
-  # An all-ages row alongside the per-band ones, mirroring the
-  # total_imm* rows on the hospitalisation side. Anything summing doses
-  # must use one or the other, never both.
+  # An all-ages row alongside the per-band ones. Named "undefined" to
+  # keep the submission's existing convention for a dose row with no age
+  # stratification. Anything summing doses must use this row OR the
+  # bands, never both.
   totals <- per_band %>%
     group_by(target_end_date, scenario_id) %>%
     summarise(value = sum(value), .groups = "drop") %>%
-    mutate(age_group = "total")
+    mutate(age_group = "undefined")
 
   crossing(
     bind_rows(per_band, totals) %>%

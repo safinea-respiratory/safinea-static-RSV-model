@@ -28,12 +28,48 @@
 #
 # Unknown values are a hard error at load, listing what is available.
 # ============================================================ #
-# Add entries to run more countries; any of the 28 in the target data
-# will work. Roughly 19 s per country.
+# All 28 countries that have data in BOTH target-data and
+# auxiliary-data, ordered by iso2. Comment out the ones you do not need;
+# roughly 19 s per country.
+#
+# Iceland (IS) and Liechtenstein (LI) appear in auxiliary-data but have
+# no hospitalisation data, so they cannot be modelled and are absent.
+#
+# Two names/codes do NOT follow the hub's own supporting-files mapping:
+#   Czech Republic - the mapping file calls it "Czechia", but target-data
+#                    uses "Czech Republic"
+#   Greece         - auxiliary-data keys it as the Eurostat code EL, not
+#                    the ISO code GR that the mapping file gives
+# Both pairings were confirmed against population size.
 countries:
-  - {name: "Ireland",  iso2: "IE"}
-  # - {name: "Austria",  iso2: "AT"}
-  # - {name: "Portugal", iso2: "PT"}
+  - {name: "Austria",        iso2: "AT"}
+  - {name: "Belgium",        iso2: "BE"}
+  - {name: "Bulgaria",       iso2: "BG"}
+  - {name: "Cyprus",         iso2: "CY"}
+  - {name: "Czech Republic", iso2: "CZ"}
+  - {name: "Germany",        iso2: "DE"}
+  - {name: "Denmark",        iso2: "DK"}
+  - {name: "Estonia",        iso2: "EE"}
+  - {name: "Greece",         iso2: "EL"}
+  - {name: "Spain",          iso2: "ES"}
+  - {name: "Finland",        iso2: "FI"}
+  - {name: "France",         iso2: "FR"}
+  - {name: "Croatia",        iso2: "HR"}
+  - {name: "Hungary",        iso2: "HU"}
+  - {name: "Ireland",        iso2: "IE"}
+  - {name: "Italy",          iso2: "IT"}
+  - {name: "Lithuania",      iso2: "LT"}
+  - {name: "Luxembourg",     iso2: "LU"}
+  - {name: "Latvia",         iso2: "LV"}
+  - {name: "Malta",          iso2: "MT"}
+  - {name: "Netherlands",    iso2: "NL"}
+  - {name: "Norway",         iso2: "NO"}
+  - {name: "Poland",         iso2: "PL"}
+  - {name: "Portugal",       iso2: "PT"}
+  - {name: "Romania",        iso2: "RO"}
+  - {name: "Sweden",         iso2: "SE"}
+  - {name: "Slovenia",       iso2: "SI"}
+  - {name: "Slovakia",       iso2: "SK"}
 
 
 # ============================================================ #

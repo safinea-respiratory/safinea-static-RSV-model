@@ -174,39 +174,55 @@ compute_scenario_impact <- function(submission, cfg, raw) {
 #
 # Over a scenario's own eligible bands the arithmetic is exactly
 #   pct = -100 x coverage x residual_ve
-# averaged over weeks and weighted by that week's admissions. This band
-# takes the UNWEIGHTED mean over the weeks the campaign is active, which
-# makes it country-independent - residual_ve depends only on the campaign
-# and the waning ensemble, not on the country - so a single band serves
-# all of them.
+# so the only question is which residual_ve to anchor the reference at.
+# The band spans the WANING RANGE over the first year:
 #
-# Consequence worth knowing when reading the plot: countries sit slightly
-# BELOW the band, because admissions occurring before coverage starts get
-# no reduction and dilute the season total. The size of that gap is a
-# read on how much of a country's burden lands early, before the campaign
-# has taken effect. A country far off in the OTHER direction, or far off
-# relative to its neighbours, is what would signal a problem.
-expected_reduction <- function(cfg, adult_waning, weeks) {
+#   lower edge (most reduction)   -100 x coverage x VE(month 0)
+#   upper edge (least reduction)  -100 x coverage x VE(month 12)
+#   dashed line                   the midpoint of the two
+#
+# It therefore reads as "the effect if every dose were fresh" down to
+# "the effect if every dose were a year old". A real campaign lands
+# between the two, because by the time any given admission occurs its
+# doses span a range of ages.
+#
+# VE is the MEAN over ALL reps in the waning file - all 500, not just the
+# n_draws the model samples - so the band describes the central waning
+# trajectory rather than any single realisation. Its width is therefore
+# WANING, not Monte-Carlo uncertainty; the per-country intervals on the
+# plot carry that.
+#
+# The band depends only on the config and the waning file, so a single
+# one serves every country.
+expected_reduction <- function(cfg) {
+
+  curves <- read.csv(cfg$adult$waning_curves_path)
+  ve_col <- curves[[cfg$adult$ve_target]]
+
+  ve_at <- function(m) {
+    v <- ve_col[curves$month == m]
+    if (length(v) == 0) {
+      stop("The waning file has no month ", m, ", which the expected ",
+           "reduction band needs.",
+           "
+  months present: ", min(curves$month), " .. ", max(curves$month),
+           "
+  file: ", cfg$adult$waning_curves_path, call. = FALSE)
+    }
+    mean(v)
+  }
+
+  ve0  <- ve_at(0)
+  ve12 <- ve_at(12)
 
   sc <- cfg$scenarios_df
-
   map_dfr(seq_len(nrow(sc)), function(i) {
-    if (sc$adult_coverage[i] <= 0) return(tibble())
-
-    p <- build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
-                                sc$adult_coverage[i], cfg$adult$ve_beyond_curve,
-                                sc$adult_age_groups[[i]])
-    per_sample <- p %>%
-      filter(coverage > 0) %>%
-      distinct(sample, target_end_date, residual_ve) %>%
-      group_by(sample) %>%
-      summarise(rve = mean(residual_ve), .groups = "drop") %>%
-      mutate(expected = -100 * sc$adult_coverage[i] * rve)
-
+    cv <- sc$adult_coverage[i]
+    if (cv <= 0) return(tibble())
     tibble(scen     = sc$id[i],
-           expected = median(per_sample$expected),
-           lo       = quantile(per_sample$expected, 0.05),
-           hi       = quantile(per_sample$expected, 0.95))
+           lo       = -100 * cv * ve0,               # fresh dose
+           hi       = -100 * cv * ve12,              # dose 12 months old
+           expected = -100 * cv * (ve0 + ve12) / 2)  # midpoint
   })
 }
 

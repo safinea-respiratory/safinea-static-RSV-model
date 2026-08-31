@@ -97,11 +97,11 @@ validate_submission(submission, cfg)
 impact <- compute_scenario_impact(submission, cfg, raw)
 write_scenario_impact(impact, "output/3_results")
 
-# Expected reduction band for the relative-change plots: over a
-# scenario's own eligible bands the answer is exactly
-# -100 x coverage x residual_VE, so countries should sit on it.
-expected <- expected_reduction(cfg, adult_waning,
-                               unique(submission$target_end_date))
+# Reference band for the relative-change plots. Spans the waning range
+# over the first year: -100 x coverage x VE at month 0 (fresh dose) to
+# the same at month 12, dashed line at the midpoint. VE is the mean over
+# all reps in the waning file.
+expected <- expected_reduction(cfg)
 
 impact_figures <- build_impact_plots(impact, expected,
                                      dir = "output/3_results/figures")

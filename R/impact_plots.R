@@ -57,12 +57,16 @@ plot_impact_abs_averted <- function(tbl) {
 
 
 # ---- Plot: relative change vs baseline ----------------------------------
-# Negative means averted. The dashed band is coverage x VE averaged over
-# the weeks the campaign is active. Countries sit slightly BELOW it
-# because admissions before coverage starts get no reduction and dilute
-# the season total - the gap measures how much of a country's burden
-# lands early. A country off in the other direction, or an outlier among
-# its neighbours, is what would signal a problem.
+# Negative means averted.
+#
+# The shaded band spans the waning range over the first year: its lower
+# edge is coverage x VE(month 0), a fresh dose; its upper edge is
+# coverage x VE(month 12), a dose a year old; the dashed line is the
+# midpoint. A real campaign lands between the two, because by the time
+# any given admission occurs its doses span a range of ages.
+#
+# The band's width is WANING; the per-country error bars are Monte-Carlo
+# uncertainty. They mean different things and should not be read as one.
 plot_impact_pct_averted <- function(tbl, expected = NULL,
                                     label = "scenario's eligible ages") {
 
@@ -71,7 +75,9 @@ plot_impact_pct_averted <- function(tbl, expected = NULL,
     paste0("Relative change in seasonal RSV hospitalisations vs baseline (",
            label, ")"),
     paste0("Median and 90% interval across paired samples",
-           if (!is.null(expected)) "  -  band: coverage x VE while the campaign is active" else ""),
+           if (!is.null(expected))
+             "  -  band: coverage x mean VE, month 0 (lower) to month 12 (upper)"
+           else ""),
     "Relative change (%)  -  negative = averted")
 
   # Reference band drawn UNDER the points, so it never hides them.

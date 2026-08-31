@@ -281,8 +281,58 @@ validate_programme_disjoint <- function(cfg) {
 }
 
 
+# data_start must not exclude the data the sampler needs.
+#
+# The burden file gives ONE season-long window per band, so the filter
+# `burden_start_date >= data_start` is all-or-nothing: a data_start even
+# one day after the window start empties the whole age-stratified table,
+# leaving the sampler with no column margins and nothing to draw. That
+# surfaced only as "no baseline samples produced", deep inside the
+# country loop, so it is checked here instead.
+validate_data_start <- function(cfg, raw) {
+
+  ds <- ymd(cfg$data_start)
+  if (is.na(ds)) {
+    stop("data_start is not a valid date: ", deparse(cfg$data_start),
+         call. = FALSE)
+  }
+
+  fmt_b <- cfg$input_date_formats$burden_agegroups
+  fmt_w <- cfg$input_date_formats$weekly_counts
+
+  for (nm in cfg$countries_df$name) {
+
+    bur <- raw$burden     %>% filter(country == nm)
+    adm <- raw$admissions %>% filter(country == nm)
+    if (nrow(bur) == 0 || nrow(adm) == 0) next   # validate_countries reports this
+
+    b_start <- min(parse_dates_strict(bur$start_date, fmt_b,
+                                      "hospitalburden_agegroups.csv$start_date"))
+    b_end   <- max(parse_dates_strict(bur$end_date, fmt_b,
+                                      "hospitalburden_agegroups.csv$end_date"))
+    a_rng   <- range(parse_dates_strict(adm$target_end_date, fmt_w,
+                                        "hospitaladmissions.csv$target_end_date"))
+
+    if (ds > b_start || ds > a_rng[2]) {
+      stop("data_start (", format(ds), ") excludes the data needed for \"",
+           nm, "\".",
+           "\n  burden window:     ", format(b_start), " .. ", format(b_end),
+           "\n  weekly admissions: ", format(a_rng[1]), " .. ", format(a_rng[2]),
+           "\n",
+           "\n  The burden file has a single season-long window per age band,",
+           "\n  so any data_start after ", format(b_start), " drops the whole",
+           "\n  age-stratified table and the sampler has nothing to draw.",
+           "\n  Set data_start to ", format(b_start), " or earlier.",
+           call. = FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+
 validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
+  validate_data_start(cfg, raw)
   validate_adult_config(cfg)
   validate_scenarios(cfg)
   validate_programme_disjoint(cfg)

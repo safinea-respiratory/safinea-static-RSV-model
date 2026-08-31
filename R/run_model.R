@@ -34,9 +34,18 @@ run_country <- function(cfg, country_name, country_iso2,
   )
 
   if (nrow(baseline_df) == 0) {
-    stop("No baseline samples produced for ", country_name,
-         ". Check that data_start (", cfg$data_start, ") precedes the ",
-         "available data.", call. = FALSE)
+    n_wk  <- sum(epi$admissions$target_end_date   >= ymd(cfg$data_start))
+    n_bur <- sum(epi$burden$burden_start_date >= ymd(cfg$data_start))
+    stop("No baseline samples produced for ", country_name, ".",
+         "\n  After filtering on data_start (", cfg$data_start, "): ",
+         n_wk, " weekly row(s), ", n_bur, " burden row(s).",
+         "\n  Unfiltered the data spans:",
+         "\n    burden window:     ", format(min(epi$burden$burden_start_date)),
+         " .. ", format(max(epi$burden$burden_end_date)),
+         "\n    weekly admissions: ", format(min(epi$admissions$target_end_date)),
+         " .. ", format(max(epi$admissions$target_end_date)),
+         "\n  The sampler needs both sides non-empty.",
+         call. = FALSE)
   }
 
   # ---- Protection tables ----

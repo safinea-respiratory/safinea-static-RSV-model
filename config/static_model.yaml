@@ -181,8 +181,8 @@ adult_vaccination:
   #             "uniform" = equal increment each week.
   #
   campaigns:
-    - start:   "2026-09-01"
-      end:     "2026-11-30"
+    - start:   "2026-11-01"
+      end:     "2026-11-01"
       share:   1.0
       profile: "uniform"
 
@@ -273,7 +273,13 @@ population_file: "data/population/population_estimates.csv"
 # ============================================================ #
 # Number of draws per time point and RNG seed for reproducibility.
 # n_draws must not exceed the number of reps in the waning ensemble.
-# Data start date filters out all earlier data points.
-n_draws:    100
+#
+# data_start drops earlier data points. Note it is effectively
+# ALL-OR-NOTHING with this input: the burden file holds a single
+# season-long window per age band (2026-08-31 .. 2027-08-29), so any
+# value AFTER the window start discards the entire age-stratified table
+# and the sampler has nothing to draw from. Keep it at or before the
+# burden window start; it is checked at load.
+n_draws:    10
 mc_seed:    123
 data_start: "2026-08-01"

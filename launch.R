@@ -43,6 +43,8 @@ source("R/format_submission.R")
 source("R/build_doses.R")
 source("R/run_model.R")
 source("R/submission_output.R")
+source("R/scenario_impact.R")
+source("R/impact_plots.R")
 source("R/plots.R")
 
 
@@ -85,6 +87,24 @@ validate_submission(submission, cfg)
 # plot_dose_schedule(submission %>% filter(location == "IE",
 #                                          target == "administered_doses"))
 # plot_adult_protection(ie$adult_protection$adult_70)
+
+
+# ---- Scenario impact summaries ---------------------------------
+# Reduces the sample-level submission to the standard impact tables:
+# admissions averted and doses, absolute and per 100k of total or
+# eligible population. Every interval is over PAIRED samples - scenario
+# minus baseline within a draw - so the pairing is not thrown away.
+impact <- compute_scenario_impact(submission, cfg, raw)
+write_scenario_impact(impact, "output/3_results")
+
+# Expected reduction band for the relative-change plots: over a
+# scenario's own eligible bands the answer is exactly
+# -100 x coverage x residual_VE, so countries should sit on it.
+expected <- expected_reduction(cfg, adult_waning,
+                               unique(submission$target_end_date))
+
+impact_figures <- build_impact_plots(impact, expected,
+                                     dir = "output/3_results/figures")
 
 
 # ---- Persist ---------------------------------------------------

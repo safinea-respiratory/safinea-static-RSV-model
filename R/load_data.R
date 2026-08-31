@@ -91,7 +91,14 @@ load_config <- function(path = "config/static_model.yaml") {
     age_bounds      = age_bounds,
     vacc_start      = ymd(unlist(inf$windows$start)),
     vacc_end        = ymd(unlist(inf$windows$end)),
-    baseline_uptake = inf$baseline_uptake
+    baseline_uptake = inf$baseline_uptake,
+
+    # Which band infant doses are counted against. This is a birth-dose
+    # product, so they are attributed to the youngest band - the birth
+    # cohort itself. Note that for a purely MATERNAL product the dose
+    # arguably belongs to the mother's band instead; the choice only
+    # matters once infant uptake is non-zero.
+    dose_age_group  = age_bounds$age_group[which.min(age_bounds$min_mo)]
   )
 
   # ---- Adult programme (calendar campaign) ----

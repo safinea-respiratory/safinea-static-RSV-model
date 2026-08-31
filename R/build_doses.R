@@ -76,39 +76,81 @@ build_dose_table <- function(baseline_df, births_df, population_df,
 
   weeks_vec <- dates_df$target_end_date
 
-  # ---- adult denominator ----
+  # ---- adult doses, per age band ----
   # Coverage is applied uniformly across a scenario's targeted bands, so
-  # the denominator is their combined population. It is computed PER
-  # SCENARIO because scenarios may target different bands - retargeting
-  # from 65+ to 75+ shrinks the denominator as well as the effect.
+  # each band gets that week's coverage increment times its OWN
+  # population. Summing the bands first would throw away exactly the
+  # breakdown we want.
   adult_doses_for <- function(coverage, bands) {
-    adult_pop <- population_df %>%
+    pops <- population_df %>%
       filter(age_group %in% bands) %>%
-      summarise(p = sum(population)) %>%
-      pull(p)
-
+      select(age_group, population)
+    if (nrow(pops) == 0) {
+      return(tibble(target_end_date = as.Date(character()),
+                    age_group = character(), doses = numeric()))
+    }
     sched <- build_campaign_schedule(cfg$adult$campaigns, coverage, weeks_vec)
-    tibble(target_end_date = weeks_vec) %>%
+    crossing(tibble(target_end_date = weeks_vec), pops) %>%
       left_join(sched %>% rename(target_end_date = week), by = "target_end_date") %>%
-      mutate(adult = coalesce(delta, 0) * adult_pop) %>%
-      select(target_end_date, adult)
+      mutate(doses = coalesce(delta, 0) * population) %>%
+      select(target_end_date, age_group, doses)
   }
 
-  # One dose track per configured scenario: infant births x infant uptake,
-  # plus adult population x that week's coverage increment.
   sc <- cfg$scenarios_df
 
-  crossing(
-    bind_rows(lapply(seq_len(nrow(sc)), function(i) {
+  # Every band any scenario vaccinates. The dose grid must be the same
+  # for every scenario - a scenario that does not target a band still
+  # emits a zero row for it - or the submission grid would be ragged.
+  dose_bands <- sort(unique(c(
+    unlist(lapply(seq_len(nrow(sc)), function(i)
+      if (sc$adult_coverage[i] > 0) sc$adult_age_groups[[i]] else character(0))),
+    if (any(sc$infant_uptake > 0)) cfg$infant$dose_age_group else character(0)
+  )))
+
+  if (length(dose_bands) == 0) {
+    stop("No scenario vaccinates anyone, so there are no dose age groups ",
+         "to report.", call. = FALSE)
+  }
+
+  # One dose track per scenario: infant births x infant uptake attributed
+  # to the birth cohort, plus adult population x coverage increment for
+  # each targeted band.
+  per_band <- bind_rows(lapply(seq_len(nrow(sc)), function(i) {
+
+    inf <- if (sc$infant_uptake[i] > 0) {
       infant_base %>%
-        left_join(adult_doses_for(sc$adult_coverage[i], sc$adult_age_groups[[i]]),
-                  by = "target_end_date") %>%
-        mutate(value       = births * sc$infant_uptake[i] + adult,
-               target      = "administered_doses",
-               pop_group   = "undefined",
-               scenario_id = sc$id[i]) %>%
-        select(target_end_date, value, target, pop_group, scenario_id)
-    })),
+        transmute(target_end_date,
+                  age_group = cfg$infant$dose_age_group,
+                  doses     = births * sc$infant_uptake[i])
+    } else tibble()
+
+    adu <- adult_doses_for(sc$adult_coverage[i], sc$adult_age_groups[[i]])
+
+    # Fill the full band grid so every scenario carries every band.
+    crossing(target_end_date = weeks_vec, age_group = dose_bands) %>%
+      left_join(bind_rows(inf, adu) %>%
+                  group_by(target_end_date, age_group) %>%
+                  summarise(doses = sum(doses), .groups = "drop"),
+                by = c("target_end_date", "age_group")) %>%
+      mutate(value       = coalesce(doses, 0),
+             scenario_id = sc$id[i]) %>%
+      select(target_end_date, age_group, value, scenario_id)
+  }))
+
+  # An all-ages row alongside the per-band ones, mirroring the
+  # total_imm* rows on the hospitalisation side. Anything summing doses
+  # must use one or the other, never both.
+  totals <- per_band %>%
+    group_by(target_end_date, scenario_id) %>%
+    summarise(value = sum(value), .groups = "drop") %>%
+    mutate(age_group = "total")
+
+  crossing(
+    bind_rows(per_band, totals) %>%
+      transmute(target_end_date, value,
+                target    = "administered_doses",
+                pop_group = age_group,
+                scenario_id),
     round_id       = round_id,
     output_type    = "sample",
     output_type_id = output_type_ids

@@ -171,8 +171,27 @@ plot_adult_protection <- function(protection_df, age_group_to_plot = NULL) {
 # adult campaign: a flat block across the campaign weeks and zero either
 # side. Use this to check that the campaign window and the population
 # denominator line up.
-plot_dose_schedule <- function(doses_df) {
+# by_age = FALSE plots the all-ages "total" row; TRUE breaks it down by
+# the age band the doses were given to.
+plot_dose_schedule <- function(doses_df, by_age = FALSE) {
+
+  if (by_age) {
+    return(
+      doses_df %>%
+        filter(pop_group != "total") %>%
+        distinct(scenario_id, target_end_date, pop_group, value) %>%
+        ggplot(aes(x = target_end_date, y = value, colour = pop_group)) +
+        geom_line(linewidth = 0.8) +
+        facet_wrap(~ scenario_id, ncol = 1, scales = "free_y") +
+        labs(title    = "Weekly administered RSV doses by age group",
+             subtitle = "Eligible population of each band x that week's coverage increment",
+             x = "Week ending", y = "Doses", colour = "Age group") +
+        theme_bw() + theme(legend.position = "bottom")
+    )
+  }
+
   doses_df %>%
+    filter(pop_group == "total") %>%
     distinct(scenario_id, target_end_date, value) %>%
     ggplot(aes(x = target_end_date, y = value, colour = scenario_id)) +
     geom_line(linewidth = 0.8) +

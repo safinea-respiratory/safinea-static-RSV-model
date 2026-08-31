@@ -120,8 +120,11 @@ compute_scenario_impact <- function(submission, cfg, raw) {
   by_union <- paired_for(function(sid) union_bands)
 
   # ---- doses, per sample ----
+  # Dose rows are age-stratified and carry a "total" row alongside the
+  # bands, so summing everything would double-count. Take the total row.
   doses <- submission %>%
-    filter(target == "administered_doses", scenario_id %in% active) %>%
+    filter(target == "administered_doses", scenario_id %in% active,
+           pop_group == "total") %>%
     group_by(location, scenario_id, output_type_id) %>%
     summarise(doses = sum(value), .groups = "drop")
 

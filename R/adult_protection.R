@@ -29,11 +29,22 @@ build_campaign_schedule <- function(campaigns, total_coverage, target_weeks) {
     cp <- campaigns[[i]]
     wk <- target_weeks[target_weeks >= cp$start & target_weeks <= cp$end]
 
+    # A HARD ERROR, not a warning. A campaign that matches no modelled
+    # week silently zeroes the whole scenario - doses, coverage and
+    # effect - and the run still completes with a full submission of
+    # zeros. That surfaces much later as something unrelated-looking,
+    # so it has to stop here.
     if (length(wk) == 0) {
-      warning("Adult campaign ", i, " (", format(cp$start), " to ",
-              format(cp$end), ") does not overlap any modelled week; ",
-              "it will contribute no coverage.", call. = FALSE)
-      return(empty)
+      near <- target_weeks[order(abs(as.numeric(target_weeks - cp$start)))][1:2]
+      stop("Adult campaign ", i, " (", format(cp$start), " to ",
+           format(cp$end), ") matches no modelled week, so it would ",
+           "deliver zero coverage.",
+           "\n  Campaign windows are matched against week-ending dates, ",
+           "which are always ", weekdays(target_weeks[1]), "s.",
+           "\n  ", format(cp$start), " is a ", weekdays(cp$start), ".",
+           "\n  Nearest valid dates: ",
+           paste(format(sort(near)), collapse = ", "),
+           call. = FALSE)
     }
 
     if (!identical(cp$profile, "uniform")) {

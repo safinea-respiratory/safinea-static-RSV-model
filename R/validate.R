@@ -330,9 +330,48 @@ validate_data_start <- function(cfg, raw) {
 }
 
 
+# Every adult campaign must overlap the modelled weekly grid.
+#
+# Campaign windows are matched against week-ending dates, so a window
+# that lands on any other weekday matches nothing and silently delivers
+# zero coverage - the run then completes normally and emits a full
+# submission of zeros. Checked here so it fails before any modelling
+# rather than surfacing later as an unrelated-looking error.
+validate_campaign_windows <- function(cfg, raw) {
+
+  camps <- cfg$adult$campaigns
+  if (length(camps) == 0) return(invisible(TRUE))
+  if (all(cfg$scenarios_df$adult_coverage <= 0)) return(invisible(TRUE))
+
+  weeks <- sort(unique(parse_dates_strict(
+    raw$admissions$target_end_date, cfg$input_date_formats$weekly_counts,
+    "hospitaladmissions.csv$target_end_date")))
+  weeks <- weeks[weeks >= ymd(cfg$data_start)]
+  if (length(weeks) == 0) return(invisible(TRUE))   # validate_data_start reports
+
+  for (i in seq_along(camps)) {
+    cp <- camps[[i]]
+    if (!any(weeks >= cp$start & weeks <= cp$end)) {
+      near <- weeks[order(abs(as.numeric(weeks - cp$start)))][1:2]
+      stop("adult_vaccination.campaigns[[", i, "]] (", format(cp$start),
+           " to ", format(cp$end), ") matches no modelled week, so every ",
+           "scenario would deliver zero coverage.",
+           "\n  Campaign windows are matched against week-ending dates, ",
+           "which are always ", weekdays(weeks[1]), "s.",
+           "\n  ", format(cp$start), " is a ", weekdays(cp$start), ".",
+           "\n  Nearest valid dates: ", paste(format(sort(near)), collapse = ", "),
+           "\n  Widen the window, or move it onto a week-ending date.",
+           call. = FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+
 validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
   validate_data_start(cfg, raw)
+  validate_campaign_windows(cfg, raw)
   validate_adult_config(cfg)
   validate_scenarios(cfg)
   validate_programme_disjoint(cfg)

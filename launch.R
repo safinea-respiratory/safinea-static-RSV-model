@@ -112,3 +112,4 @@ impact_figures <- build_impact_plots(impact, expected,
 # Writes output/<round_id>_staticModel.parquet, creating the directory if
 # needed. Pass `path` to override. output/ is gitignored.
 write_submission(submission, cfg)
+

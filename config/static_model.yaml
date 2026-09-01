@@ -217,8 +217,8 @@ adult_vaccination:
   #             "uniform" = equal increment each week.
   #
   campaigns:
-    - start:   "2026-11-01"
-      end:     "2026-11-01"
+    - start:   "2026-10-04"
+      end:     "2026-10-04"
       share:   1.0
       profile: "uniform"
 

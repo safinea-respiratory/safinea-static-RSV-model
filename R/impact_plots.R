@@ -47,8 +47,19 @@ impact_plot_base <- function(df, title, subtitle, y_lab,
 # between Malta and Germany. Countries with a zero-width interval have
 # only one distinct paired difference.
 plot_impact_abs_averted <- function(tbl) {
+
+  # A log scale cannot show non-positive values, so they are dropped -
+  # but if that empties the table, say so plainly rather than letting
+  # ggplot fail on an empty facet variable several layers down.
+  pos <- tbl %>% filter(median > 0)
+  if (nrow(pos) == 0) {
+    stop("No positive averted values to plot: every scenario averted ",
+         "nothing. Check that the adult campaign overlaps the modelled ",
+         "weeks and that scenario coverage is non-zero.", call. = FALSE)
+  }
+
   impact_plot_base(
-    tbl %>% filter(median > 0),
+    pos,
     "Hospitalisations averted vs baseline (scenario's eligible ages)",
     "Median and 90% interval across paired samples  -  log10 y axis",
     "Hospitalisations averted (count)",

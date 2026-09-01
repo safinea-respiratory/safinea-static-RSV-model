@@ -80,15 +80,27 @@ plot_impact_pct_averted <- function(tbl, expected = NULL,
            else ""),
     "Relative change (%)  -  negative = averted")
 
-  # Reference band drawn UNDER the points, so it never hides them.
+  # Reference band drawn UNDER the points, so it never hides them. One
+  # band per season: with a single campaign, the later season's doses are
+  # a year older, so its band sits well above the first's.
   if (!is.null(expected) && nrow(expected) > 0) {
     exp_df <- expected %>% filter(scen %in% unique(tbl$scen))
+    multi  <- length(unique(exp_df$season)) > 1
     p$layers <- c(
-      geom_rect(data = exp_df,
-                aes(xmin = -Inf, xmax = Inf, ymin = lo, ymax = hi),
-                inherit.aes = FALSE, alpha = 0.18, fill = "steelblue"),
-      geom_hline(data = exp_df, aes(yintercept = expected),
-                 linetype = "dashed", colour = "steelblue4"),
+      if (multi) {
+        geom_rect(data = exp_df,
+                  aes(xmin = -Inf, xmax = Inf, ymin = lo, ymax = hi,
+                      fill = season),
+                  inherit.aes = FALSE, alpha = 0.15)
+      } else {
+        geom_rect(data = exp_df,
+                  aes(xmin = -Inf, xmax = Inf, ymin = lo, ymax = hi),
+                  inherit.aes = FALSE, alpha = 0.18, fill = "steelblue")
+      },
+      geom_hline(data = exp_df,
+                 aes(yintercept = expected,
+                     colour = if (multi) season else NULL),
+                 linetype = "dashed", show.legend = FALSE),
       p$layers)
   }
   p

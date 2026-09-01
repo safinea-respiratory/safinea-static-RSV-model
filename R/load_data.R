@@ -169,8 +169,8 @@ all_adult_bands <- function(cfg) {
 # validate_countries().
 load_raw_inputs <- function(
     cfg,
-    weekly_file = "data/epidemiological/hospitaladmissions.csv",
-    burden_file = "data/epidemiological/hospitalburden_agegroups.csv") {
+    weekly_file = cfg$epi_weekly_file,
+    burden_file = cfg$epi_burden_file) {
 
   read_required <- function(path, label) {
     if (is.null(path) || !file.exists(path)) {

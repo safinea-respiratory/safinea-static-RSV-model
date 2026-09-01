@@ -97,11 +97,12 @@ validate_submission(submission, cfg)
 impact <- compute_scenario_impact(submission, cfg, raw)
 write_scenario_impact(impact, "output/3_results")
 
-# Reference band for the relative-change plots. Spans the waning range
-# over the first year: -100 x coverage x VE at month 0 (fresh dose) to
-# the same at month 12, dashed line at the midpoint. VE is the mean over
-# all reps in the waning file.
-expected <- expected_reduction(cfg)
+# Reference band for the relative-change plots, one per scenario AND
+# season: -100 x coverage x mean VE, spanning the range of dose ages that
+# season contains. With a single autumn campaign that is roughly months
+# 0-11 in the first season and 12-23 in the second.
+expected <- expected_reduction(
+  cfg, week_season_map(cfg, raw, unique(submission$target_end_date)))
 
 impact_figures <- build_impact_plots(impact, expected,
                                      dir = "output/3_results/figures")

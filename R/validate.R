@@ -327,24 +327,45 @@ validate_data_start <- function(cfg, raw) {
     adm <- raw$admissions %>% filter(country == nm)
     if (nrow(bur) == 0 || nrow(adm) == 0) next   # validate_countries reports this
 
-    b_start <- min(parse_dates_strict(bur$start_date, fmt_b,
-                                      "hospitalburden_agegroups.csv$start_date"))
-    b_end   <- max(parse_dates_strict(bur$end_date, fmt_b,
-                                      "hospitalburden_agegroups.csv$end_date"))
-    a_rng   <- range(parse_dates_strict(adm$target_end_date, fmt_w,
-                                        "hospitaladmissions.csv$target_end_date"))
+    b_starts <- sort(unique(parse_dates_strict(
+      bur$start_date, fmt_b, "hospitalburden_agegroups.csv$start_date")))
+    b_end    <- max(parse_dates_strict(
+      bur$end_date, fmt_b, "hospitalburden_agegroups.csv$end_date"))
+    a_dates  <- sort(unique(parse_dates_strict(
+      adm$target_end_date, fmt_w, "hospitaladmissions.csv$target_end_date")))
 
-    if (ds > b_start || ds > a_rng[2]) {
+    # What matters is that BOTH tables still have rows after the filter -
+    # not where the first window happens to start. A burden file with one
+    # season-long window per band is emptied by any later data_start; one
+    # with 4-weekly windows is not, and there a mid-series start is a
+    # perfectly good way to select which seasons to model.
+    kept_b <- b_starts[b_starts >= ds]
+    kept_a <- a_dates[a_dates >= ds]
+
+    if (length(kept_b) == 0 || length(kept_a) == 0) {
+
+      why <- if (length(b_starts) == 1) {
+        paste0("\n  The burden file has a SINGLE window per age band, so any",
+               "\n  data_start after ", format(b_starts), " drops the whole",
+               "\n  age-stratified table and the sampler has nothing to draw.",
+               "\n  Set data_start to ", format(b_starts), " or earlier.")
+      } else {
+        paste0("\n  The burden file has ", length(b_starts), " windows per age ",
+               "band. None begins on or", "\n  after data_start",
+               if (length(kept_a) == 0)
+                 ", and no weekly row survives it either" else "", ".",
+               "\n  Set data_start to ", format(max(b_starts)), " or earlier.")
+      }
+
       stop("data_start (", format(ds), ") excludes the data needed for \"",
            nm, "\".",
-           "\n  burden window:     ", format(b_start), " .. ", format(b_end),
-           "\n  weekly admissions: ", format(a_rng[1]), " .. ", format(a_rng[2]),
-           "\n",
-           "\n  The burden file has a single season-long window per age band,",
-           "\n  so any data_start after ", format(b_start), " drops the whole",
-           "\n  age-stratified table and the sampler has nothing to draw.",
-           "\n  Set data_start to ", format(b_start), " or earlier.",
-           call. = FALSE)
+           "\n  burden windows:    ", format(min(b_starts)), " .. ",
+           format(b_end), "  (", length(b_starts), " window(s), ",
+           length(kept_b), " kept)",
+           "\n  weekly admissions: ", format(min(a_dates)), " .. ",
+           format(max(a_dates)), "  (", length(a_dates), " week(s), ",
+           length(kept_a), " kept)",
+           why, call. = FALSE)
     }
   }
   invisible(TRUE)

@@ -39,13 +39,17 @@ week_season_map <- function(cfg, raw, weeks) {
     mutate(derived = paste0(format(start, "%Y"), "/", format(end, "%Y"))) %>%
     arrange(start)
 
+  # An explicit `season` column WINS when the file carries one.
+  #
+  # Deriving the label from the window's own start and end years only
+  # works when there is one window per season, as in the RespiCompass
+  # burden file. A file with finer windows - the Irish extract splits the
+  # age mix every four weeks - would otherwise get one "season" per
+  # window, and every seasonal summary would be cut into four-week
+  # slices. Such a file has to say which season each window belongs to,
+  # and that column is then authoritative rather than cross-checked.
   if ("season" %in% names(win)) {
-    bad <- win %>% filter(season != derived)
-    if (nrow(bad) > 0) {
-      stop("The burden file's `season` column disagrees with its window dates: ",
-           paste0(bad$season, " vs ", bad$derived, collapse = "; "),
-           call. = FALSE)
-    }
+    win$derived <- as.character(win$season)
   }
 
   # Overlapping windows would put a week in two seasons and count it twice.

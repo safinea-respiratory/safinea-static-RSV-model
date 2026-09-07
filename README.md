@@ -259,11 +259,16 @@ seasons is expressible as it actually happened:
 baseline_uptake: [0.45, 0.83]     # first season, second season
 ```
 
-Coverage is then $\sum_s 	ext{uptake}_s 	imes 	ext{overlap}_s$ over the band's birth
-window rather than a single rate times the total overlap. A cohort straddling a
-programme change therefore carries a **blend** of both years, weighted by how
-much of it falls in each — e.g. a `1-4` band spanning 180 days of a 20 % season
-and 89 days of a 90 % season comes out at 43.2 %, not at either rate.
+Coverage is then
+
+```
+coverage(band, t) = Σ  uptake[s] · overlap[s]  /  width of the band's birth window
+```
+
+summed over seasons `s`, rather than one rate times the total overlap. A cohort
+straddling a programme change therefore carries a **blend** of both years,
+weighted by how much of it falls in each — a `1-4` band spanning 180 days of a
+20 % season and 89 days of a 90 % season comes out at 43.2 %, not at either rate.
 
 **`adult_vaccination`**
 

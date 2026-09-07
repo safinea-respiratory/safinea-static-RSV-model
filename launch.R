@@ -14,10 +14,20 @@
 # Runs once per country listed in the config and binds the results,
 # distinguished by the `location` column.
 #
-# The infant and adult vaccination programmes are INDEPENDENT: different
-# products, eligibility rules, waning data and uncertainty models. Both
-# feed admissions and doses. For the 2026/27 round infant uptake is zero
-# in every scenario, so only the adult programme has an effect.
+# THREE vaccination programmes, each feeding admissions and doses:
+#
+#   infant    birth dose. Eligibility from the birth cohort's overlap
+#             with a vaccination window; waning read off the age band,
+#             because for a dose at birth age IS time since dose.
+#   adult     a different vaccine. Eligibility a fixed set of age bands;
+#             waning by months since dose, from a sampled curve ensemble.
+#   catch-up  the infant vaccine on a calendar campaign. Eligibility an
+#             age range on the DAY OF THE DOSE - a birth cohort that then
+#             ages across bands - and waning by months since dose.
+#
+# The last two share machinery (R/campaign_protection.R) but not
+# settings. For the 2026/27 round infant uptake is zero in every
+# scenario, so only the adult and catch-up programmes have an effect.
 #
 # Configuration: config/static_model.yaml
 # Run from the project root: Rscript launch.R
@@ -37,7 +47,7 @@ source("R/utils.R")
 source("R/validate.R")
 source("R/simulate_margins.R")
 source("R/apply_scenario.R")
-source("R/adult_protection.R")
+source("R/campaign_protection.R")
 source("R/load_data.R")
 source("R/format_submission.R")
 source("R/build_doses.R")

@@ -149,6 +149,56 @@ build_infant_protection <- function(grid, uptake, vacc_start, vacc_end,
 }
 
 
+# Merge several programmes' protection tables into one.
+#
+# Replaces a plain bind_rows(), which is only valid while programmes
+# cover disjoint bands. The infant catch-up deliberately breaks that: its
+# cohort ages through "0-2mo", "3-5mo" and "6-11mo", all of which the
+# infant birth-dose programme also claims. Two rows for one key would be
+# joined twice by apply_scenario() and silently multiply admissions.
+#
+# Programmes are combined as reaching DISJOINT PEOPLE within a band:
+#
+#   coverage    = sum of the individual coverages
+#   residual_ve = sum(coverage x residual_ve) / sum(coverage)
+#
+# so the product coverage x residual_ve - the only quantity the scenario
+# arithmetic actually uses - is the plain sum of each programme's
+# contribution. Exact, because expected admissions are linear in VE. It
+# is the same coverage-weighted mean build_campaign_protection() already
+# uses to combine doses given in different weeks.
+#
+# The disjointness assumption is what combined coverage > 1 would
+# violate, so that is a hard error rather than a clamp: it means the
+# programmes are double-counting the same children, and every downstream
+# number would be wrong in a way nothing else would catch.
+combine_protection <- function(..., tol = 1e-8) {
+
+  combined <- bind_rows(...) %>%
+    group_by(age_group, target_end_date, sample) %>%
+    summarise(protection = sum(coverage * residual_ve),
+              coverage   = sum(coverage),
+              .groups    = "drop") %>%
+    mutate(residual_ve = ifelse(coverage > 0, protection / coverage, 0)) %>%
+    select(age_group, target_end_date, sample, coverage, residual_ve)
+
+  over <- combined %>% filter(coverage > 1 + tol)
+  if (nrow(over) > 0) {
+    worst <- over %>% slice_max(coverage, n = 1, with_ties = FALSE)
+    stop("Combined coverage exceeds 1 for ", nrow(over),
+         " (age_group, week, sample) key(s) - the programmes are ",
+         "vaccinating the same children twice.",
+         "\n  Worst: ", worst$age_group, " on ", format(worst$target_end_date),
+         " reaches ", signif(worst$coverage, 4), ".",
+         "\n  Check that the catch-up cohort does not overlap the infant ",
+         "programme's vaccination windows, or lower the coverages.",
+         call. = FALSE)
+  }
+
+  combined
+}
+
+
 # A protection table must carry at most one row per
 # (age_group, target_end_date, sample). Duplicates mean two programmes
 # claimed the same band, and a left_join would multiply admissions

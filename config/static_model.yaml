@@ -228,6 +228,66 @@ adult_vaccination:
 
 
 # ============================================================ #
+# INFANT CATCH-UP PROGRAMME - same vaccine, calendar campaign
+#
+# A one-off campaign that vaccinates children who are already some
+# months old, rather than at birth. It is the SAME PRODUCT as the birth
+# dose above, so it takes its effectiveness and waning from
+# infant_vaccination (vacc_IE and waning_by_band) and has no VE settings
+# of its own. Only the elderly vaccine, a different product, uses the
+# sampled curves in data/vaccine/waning_curves.csv.
+#
+# What differs from the birth dose is the CLOCK. A birth dose is given at
+# age zero, so age and time-since-dose are the same number and waning can
+# be read straight off the age band. A catch-up dose is given on a date
+# to children who are already months old, which separates the two:
+#
+#   eligibility  an age range ON THE DAY OF THE DOSE - a birth cohort,
+#                which then ages ACROSS bands as the season runs. For an
+#                under-6-months campaign, "0-2mo" is fully covered on
+#                campaign day and empty three months later, while
+#                "6-11mo" fills up as the cohort arrives in it.
+#   waning       months since the dose, not age.
+#
+# This is why it cannot be expressed as another eligible_age_groups list:
+# no static set of bands describes a group that moves between them.
+# ============================================================ #
+catchup_vaccination:
+
+  # Age range eligible on the day of the dose, [min, max) in MONTHS.
+  # [0, 6] is "every child under six months old that day".
+  age_at_campaign_months: [0, 6]
+
+  # Every band the cohort can occupy over the modelled horizon - not just
+  # the ones it starts in. An under-6-months cohort reaches "6-11mo"
+  # within the season and "1-4" in the one after, so all four are needed.
+  # A band omitted here silently receives no protection, so
+  # validate_catchup_config() checks the span reaches the horizon.
+  age_bounds:
+    "0-2mo":  [0,  3]
+    "3-5mo":  [3,  6]
+    "6-11mo": [6,  12]
+    "1-4":    [12, 60]
+
+  # One-off campaign. Matched against week-ending dates (Sundays), so a
+  # window landing on any other weekday is a hard error.
+  #
+  # Dated to the start of the SECOND modelled season deliberately: the
+  # cohort for a campaign at the start of season one was born from
+  # March 2026, and this dataset's births only begin 2026-09-01, so its
+  # doses could not be counted. A campaign here has full birth coverage.
+  campaigns:
+    - start:   "2027-09-05"
+      end:     "2027-09-05"
+      share:   1.0
+      profile: "uniform"
+
+  # Catch-up coverage already reflected in the observed data. Zero: no
+  # such campaign has run, so the observed admissions need no
+  # back-calculation on this programme's account.
+  baseline_coverage: 0.00
+
+# ============================================================ #
 # Scenarios
 #
 # One entry per submitted scenario. `id` becomes the submission's
@@ -251,23 +311,36 @@ adult_vaccination:
 #                   not overlap the infant programme, and must be present
 #                   in the population file - all checked at load.
 #
+# catchup_coverage  OPTIONAL, defaults to 0. Fraction of the eligible
+#                   birth cohort vaccinated by the catch-up campaign.
+#                   Omitting it everywhere leaves the programme switched
+#                   off and the model behaves exactly as before.
+#
 # 2026/27 round: adult vaccination of 65+ at three uptake levels, against
 # a no-vaccination reference. Infant uptake is zero throughout - the
 # infant programme is out of scope this round but kept wired for later.
+#
+# PROVISIONAL: the catch-up levels below mirror the adult ones purely so
+# the machinery is exercised end to end. They are NOT a decided scenario
+# set - replace them once the real uptake levels are agreed.
 # ============================================================ #
 scenarios:
   - id: "baseline"
-    infant_uptake:  0.00
-    adult_coverage: 0.00
+    infant_uptake:    0.00
+    adult_coverage:   0.00
+    catchup_coverage: 0.00
   - id: "low_vacc"
-    infant_uptake:  0.00
-    adult_coverage: 0.20
+    infant_uptake:    0.00
+    adult_coverage:   0.20
+    catchup_coverage: 0.20
   - id: "high_vacc"
-    infant_uptake:  0.00
-    adult_coverage: 0.70
+    infant_uptake:    0.00
+    adult_coverage:   0.70
+    catchup_coverage: 0.70
   - id: "super_high_vacc"
-    infant_uptake:  0.00
-    adult_coverage: 0.98
+    infant_uptake:    0.00
+    adult_coverage:   0.98
+    catchup_coverage: 0.98
 
 
 

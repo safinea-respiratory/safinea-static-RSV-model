@@ -31,6 +31,7 @@ validate_age_groups <- function(cfg, epi, quiet = FALSE) {
     "infant_vaccination.waning_by_band"     = cfg$infant$waning_df$age_group,
     "infant_vaccination.age_bounds"         = cfg$infant$age_bounds$age_group,
     "adult_vaccination.eligible_age_groups" = cfg$adult$eligible_age_groups,
+    "catchup_vaccination.age_bounds"        = cfg$catchup$age_bounds$age_group,
     "scenarios[].adult_age_groups"          = unlist(cfg$scenarios_df$adult_age_groups),
     "age_group_order"                       = unlist(cfg$age_group_order)
   )
@@ -185,7 +186,7 @@ validate_scenarios <- function(cfg) {
     stop("Every scenario needs a non-empty `id`.", call. = FALSE)
   }
 
-  for (col in c("infant_uptake", "adult_coverage")) {
+  for (col in c("infant_uptake", "adult_coverage", "catchup_coverage")) {
     v   <- sc[[col]]
     bad <- which(is.na(v) | v < 0 | v > 1)
     if (length(bad) > 0) {
@@ -243,14 +244,21 @@ validate_population_coverage <- function(cfg, raw) {
 }
 
 
-# The two programmes must cover disjoint age bands.
+# The infant and adult programmes must cover disjoint age bands.
 #
-# This is what makes bind_rows() of the two protection tables safe: a
-# band claimed by both would get two rows per key, and the joins in
-# apply_scenario() would multiply admissions rather than fail. It is
-# checked against the UNION of every adult band referenced anywhere, so a
-# per-scenario override cannot smuggle in a band the infant programme
-# already claims.
+# They are different vaccines given to different people, so a band
+# claimed by both is a configuration error rather than a modelling
+# choice. It is checked against the UNION of every adult band referenced
+# anywhere, so a per-scenario override cannot smuggle in a band the
+# infant programme already claims.
+#
+# The CATCH-UP programme is deliberately exempt. Its cohort ages through
+# the infant bands, so it necessarily shares them with the birth-dose
+# programme - that overlap is the point, not a mistake. What used to make
+# overlap unsafe was bind_rows() giving two rows per key and the joins in
+# apply_scenario() multiplying admissions; combine_protection() now sums
+# the programmes within a band instead, and errors if their combined
+# coverage exceeds 1.
 #
 # Config-only - no data needed - so it runs in the global pre-flight
 # rather than per country.
@@ -339,31 +347,103 @@ validate_data_start <- function(cfg, raw) {
 # rather than surfacing later as an unrelated-looking error.
 validate_campaign_windows <- function(cfg, raw) {
 
-  camps <- cfg$adult$campaigns
-  if (length(camps) == 0) return(invisible(TRUE))
-  if (all(cfg$scenarios_df$adult_coverage <= 0)) return(invisible(TRUE))
-
   weeks <- sort(unique(parse_dates_strict(
     raw$admissions$target_end_date, cfg$input_date_formats$weekly_counts,
     "hospitaladmissions.csv$target_end_date")))
   weeks <- weeks[weeks >= ymd(cfg$data_start)]
   if (length(weeks) == 0) return(invisible(TRUE))   # validate_data_start reports
 
-  for (i in seq_along(camps)) {
-    cp <- camps[[i]]
-    if (!any(weeks >= cp$start & weeks <= cp$end)) {
-      near <- weeks[order(abs(as.numeric(weeks - cp$start)))][1:2]
-      stop("adult_vaccination.campaigns[[", i, "]] (", format(cp$start),
-           " to ", format(cp$end), ") matches no modelled week, so every ",
-           "scenario would deliver zero coverage.",
-           "\n  Campaign windows are matched against week-ending dates, ",
-           "which are always ", weekdays(weeks[1]), "s.",
-           "\n  ", format(cp$start), " is a ", weekdays(cp$start), ".",
-           "\n  Nearest valid dates: ", paste(format(sort(near)), collapse = ", "),
-           "\n  Widen the window, or move it onto a week-ending date.",
-           call. = FALSE)
+  # Both campaign programmes are checked. A programme no scenario uses is
+  # skipped: its window is then genuinely irrelevant.
+  programmes <- list(
+    list(key   = "adult_vaccination",
+         camps = cfg$adult$campaigns,
+         used  = any(cfg$scenarios_df$adult_coverage > 0)),
+    list(key   = "catchup_vaccination",
+         camps = cfg$catchup$campaigns,
+         used  = any(cfg$scenarios_df$catchup_coverage > 0))
+  )
+
+  for (pr in programmes) {
+
+    if (length(pr$camps) == 0 || !pr$used) next
+
+    for (i in seq_along(pr$camps)) {
+      cp <- pr$camps[[i]]
+      if (!any(weeks >= cp$start & weeks <= cp$end)) {
+        near <- weeks[order(abs(as.numeric(weeks - cp$start)))][1:2]
+        stop(pr$key, ".campaigns[[", i, "]] (", format(cp$start),
+             " to ", format(cp$end), ") matches no modelled week, so every ",
+             "scenario would deliver zero coverage.",
+             "\n  Campaign windows are matched against week-ending dates, ",
+             "which are always ", weekdays(weeks[1]), "s.",
+             "\n  ", format(cp$start), " is a ", weekdays(cp$start), ".",
+             "\n  Nearest valid dates: ", paste(format(sort(near)), collapse = ", "),
+             "\n  Widen the window, or move it onto a week-ending date.",
+             call. = FALSE)
+      }
     }
   }
+  invisible(TRUE)
+}
+
+
+# The catch-up programme's own coherence checks.
+#
+# Its failure modes are all silent. A cohort that ages past every declared
+# band simply stops being protected part-way through the run; bounds that
+# disagree with the data are never matched. Either way the submission
+# looks plausible and merely shows too little effect, so both are caught
+# before any modelling starts.
+validate_catchup_config <- function(cfg, raw) {
+
+  cu <- cfg$catchup
+  if (!any(cfg$scenarios_df$catchup_coverage > 0)) return(invisible(TRUE))
+
+  am <- cu$age_months
+  if (length(am) != 2 || any(is.na(am)) || am[1] < 0 || am[2] <= am[1]) {
+    stop("catchup_vaccination.age_at_campaign_months must be [min, max) in ",
+         "months with 0 <= min < max; got: ",
+         paste(am, collapse = ", "), call. = FALSE)
+  }
+
+  if (nrow(cu$age_bounds) == 0) {
+    stop("catchup_vaccination.age_bounds is empty, so the cohort belongs to ",
+         "no age band and the campaign could have no effect.", call. = FALSE)
+  }
+
+  if (any(!is.finite(cu$age_bounds$max_mo))) {
+    open <- cu$age_bounds$age_group[!is.finite(cu$age_bounds$max_mo)]
+    stop("catchup_vaccination.age_bounds needs a finite upper bound for ",
+         "every band: an open-ended band has no birth window, so the ",
+         "cohort cannot be tracked through it.",
+         "\n  Open-ended: ", paste(open, collapse = ", "), call. = FALSE)
+  }
+
+  weeks <- sort(unique(parse_dates_strict(
+    raw$admissions$target_end_date, cfg$input_date_formats$weekly_counts,
+    "hospitaladmissions.csv$target_end_date")))
+  weeks <- weeks[weeks >= ymd(cfg$data_start)]
+  if (length(weeks) == 0) return(invisible(TRUE))
+
+  # The declared bands must carry the cohort all the way to the end of the
+  # horizon. If they run out first, the cohort ages into a band nobody
+  # declared and its protection silently disappears mid-run.
+  first_dose    <- min(do.call(c, lapply(cu$campaigns, function(cp) cp$start)))
+  span_mo       <- as.numeric(max(weeks) - first_dose) / 30.4375
+  oldest_at_end <- am[2] + span_mo
+  covered_to    <- max(cu$age_bounds$max_mo)
+
+  if (covered_to < oldest_at_end) {
+    stop("catchup_vaccination.age_bounds only reaches ", round(covered_to),
+         " months, but the cohort is up to ", ceiling(oldest_at_end),
+         " months old by the last modelled week (", format(max(weeks)), ").",
+         "\n  The cohort would age into an undeclared band and silently ",
+         "lose its protection part-way through the run.",
+         "\n  Add the older band(s) to catchup_vaccination.age_bounds.",
+         call. = FALSE)
+  }
+
   invisible(TRUE)
 }
 
@@ -372,6 +452,7 @@ validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
   validate_data_start(cfg, raw)
   validate_campaign_windows(cfg, raw)
+  validate_catchup_config(cfg, raw)
   validate_adult_config(cfg)
   validate_scenarios(cfg)
   validate_programme_disjoint(cfg)

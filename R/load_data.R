@@ -46,12 +46,13 @@ apply_age_aliases <- function(x, aliases) {
 
 # Load and parse the YAML configuration file.
 #
-# Returns the raw cfg list augmented with pre-parsed dates and two
-# normalised sub-lists, cfg$infant and cfg$adult, so that callers never
-# reach into the nested YAML structure or re-parse dates.
+# Returns the raw cfg list augmented with pre-parsed dates and three
+# normalised sub-lists - cfg$infant, cfg$adult and cfg$catchup - so that
+# callers never reach into the nested YAML structure or re-parse dates.
 #
-# The infant and adult programmes are kept strictly separate: they share
-# no parameters, and each sub-list is self-contained.
+# The three programmes are kept strictly separate: they share no
+# parameters, and each sub-list is self-contained. Two of them (adult and
+# catch-up) happen to share machinery, but not settings.
 load_config <- function(path = "config/static_model.yaml") {
   cfg <- yaml::read_yaml(path)
 
@@ -65,6 +66,34 @@ load_config <- function(path = "config/static_model.yaml") {
     row.names = NULL, stringsAsFactors = FALSE
   )
 
+  # Campaign windows are shared in shape by both campaign programmes:
+  # normalise dates and fill in equal shares when omitted.
+  parse_campaigns <- function(spec) {
+    camps <- lapply(spec, function(cp) {
+      list(start   = as.Date(cp$start),
+           end     = as.Date(cp$end),
+           share   = if (is.null(cp$share)) NA_real_ else as.numeric(cp$share),
+           profile = if (is.null(cp$profile)) "uniform" else cp$profile)
+    })
+    if (length(camps) > 0 &&
+        all(vapply(camps, function(c) is.na(c$share), logical(1)))) {
+      eq <- 1 / length(camps)
+      camps <- lapply(camps, function(c) { c$share <- eq; c })
+    }
+    camps
+  }
+
+  # Month bounds per band, [min inclusive, max exclusive), from a named
+  # YAML list. Shared by the infant and catch-up blocks.
+  parse_age_bounds <- function(spec) {
+    data.frame(
+      age_group = names(spec),
+      min_mo    = vapply(spec, function(b) as.numeric(b[[1]]), numeric(1)),
+      max_mo    = vapply(spec, function(b) as.numeric(b[[2]]), numeric(1)),
+      row.names = NULL
+    )
+  }
+
   # ---- Infant programme (maternal / birth-dose) ----
   inf <- cfg$infant_vaccination
 
@@ -76,13 +105,7 @@ load_config <- function(path = "config/static_model.yaml") {
     row.names = NULL
   )
 
-  # Month bounds per band, [min inclusive, max exclusive).
-  age_bounds <- data.frame(
-    age_group = names(inf$age_bounds),
-    min_mo    = vapply(inf$age_bounds, function(b) as.numeric(b[[1]]), numeric(1)),
-    max_mo    = vapply(inf$age_bounds, function(b) as.numeric(b[[2]]), numeric(1)),
-    row.names = NULL
-  )
+  age_bounds <- parse_age_bounds(inf$age_bounds)
 
   cfg$infant <- list(
     vacc_IE_mean    = inf$vacc_IE$mean,
@@ -106,30 +129,41 @@ load_config <- function(path = "config/static_model.yaml") {
   # the uncertainty, one whole curve per Monte-Carlo sample.
   adu <- cfg$adult_vaccination
 
-  # Campaigns: normalise dates and fill in equal shares when omitted.
-  campaigns <- lapply(adu$campaigns, function(cp) {
-    list(start   = as.Date(cp$start),
-         end     = as.Date(cp$end),
-         share   = if (is.null(cp$share)) NA_real_ else as.numeric(cp$share),
-         profile = if (is.null(cp$profile)) "uniform" else cp$profile)
-  })
-  if (length(campaigns) > 0 && all(vapply(campaigns, function(c) is.na(c$share), logical(1)))) {
-    eq <- 1 / length(campaigns)
-    campaigns <- lapply(campaigns, function(c) { c$share <- eq; c })
-  }
-
   cfg$adult <- list(
     eligible_age_groups = unlist(adu$eligible_age_groups),
     waning_curves_path  = adu$waning_curves,
     ve_target           = adu$ve_target,
     ve_beyond_curve     = adu$ve_beyond_curve,
-    campaigns           = campaigns,
+    campaigns           = parse_campaigns(adu$campaigns),
     baseline_coverage   = adu$baseline_coverage
   )
 
+  # ---- Infant catch-up programme (calendar campaign, birth cohort) ----
+  # The SAME PRODUCT as the birth dose, delivered on a different
+  # schedule. It therefore takes its VE and its waning from the infant
+  # block above - vacc_IE and waning_by_band - and has no ensemble of its
+  # own. Only the elderly vaccine, a different product entirely, uses the
+  # sampled curves in data/vaccine/waning_curves.csv.
+  #
+  # What it does NOT share with the birth dose is the clock. A birth dose
+  # is given at age zero, so age and months-since-dose coincide and
+  # waning can be read off the age band. A catch-up dose is given on a
+  # calendar date to children who are already months old, so the two come
+  # apart: eligibility is a birth cohort that ages across bands, and
+  # waning must run on months since the dose. See R/campaign_protection.R.
+  cu <- cfg$catchup_vaccination
+
+  cfg$catchup <- list(
+    age_months        = as.numeric(unlist(cu$age_at_campaign_months)),
+    age_bounds        = parse_age_bounds(cu$age_bounds),
+    campaigns         = parse_campaigns(cu$campaigns),
+    baseline_coverage = cu$baseline_coverage
+  )
+
   # ---- Scenarios ----
-  # One row per submitted scenario. Both programmes are set independently,
-  # so any combination of infant and adult uptake is expressible.
+  # One row per submitted scenario. All three programmes are set
+  # independently, so any combination of infant, adult and catch-up
+  # uptake is expressible.
   #
   # adult_age_groups is a list-column: a scenario may target its own set
   # of bands, falling back to the programme-wide default. This makes
@@ -140,6 +174,13 @@ load_config <- function(path = "config/static_model.yaml") {
     id             = vapply(cfg$scenarios, function(s) as.character(s$id), character(1)),
     infant_uptake  = vapply(cfg$scenarios, function(s) as.numeric(s$infant_uptake), numeric(1)),
     adult_coverage = vapply(cfg$scenarios, function(s) as.numeric(s$adult_coverage), numeric(1)),
+
+    # Absent means zero, so an existing config without a catch-up column
+    # keeps working and simply runs the programme off.
+    catchup_coverage = vapply(cfg$scenarios, function(s) {
+      if (is.null(s$catchup_coverage)) 0 else as.numeric(s$catchup_coverage)
+    }, numeric(1)),
+
     adult_age_groups = lapply(cfg$scenarios, function(s) {
       if (is.null(s$adult_age_groups)) cfg$adult$eligible_age_groups
       else unlist(s$adult_age_groups)

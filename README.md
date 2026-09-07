@@ -19,15 +19,16 @@ user-specified vaccination scenarios. It was developed as part of the 2026/2027
    re-applies the scenario uptake combined with a per-draw vaccine effectiveness
    (sampled from a normal distribution) and age-specific waning.
 4. **Format** results into the RespiCompass submission schema and build a
-   parallel administered-doses table covering both programmes.
+   parallel administered-doses table covering all three programmes.
 
 ### Administered doses
 
-Both programmes contribute, each against its own denominator:
+All three programmes contribute, each against its own denominator:
 
 | | Denominator | Weekly dose count |
 |---|---|---|
 | **Infant** | Monthly births | births × scenario `infant_uptake`, masked to the vaccination windows |
+| **Catch-up** | Births in the cohort's birth window | cohort size × that week's coverage increment, split across the bands the cohort occupies **when dosed** |
 | **Adult** | Population of `eligible_age_groups` | population × that week's **new** coverage increment |
 
 The adult figure works because coverage is one-off and cumulative — the weekly
@@ -47,37 +48,72 @@ doses per admission averted**.
 
 ---
 
-## Two independent vaccination programmes
+## Three vaccination programmes
 
-The infant and adult programmes are different products and are modelled
-separately. They share no parameters, and the config requires them to cover
-disjoint age bands.
+| | Infant (birth dose) | Adult | Infant catch-up |
+|---|---|---|---|
+| Vaccine | infant product | **different product** | infant product |
+| Eligibility | birth cohort ∩ vaccination window | **fixed age bands** | **age range on the day of the dose** |
+| Waning indexed by | **age band** — age equals time since dose | months since dose | months since dose |
+| Waning source | `waning_by_band` in the config | `data/vaccine/waning_curves.csv` | `waning_by_band`, re-indexed onto months since dose |
+| Uncertainty | parametric draw on `vacc_IE` | empirical — one whole curve per sample | parametric draw on `vacc_IE` |
+| Coverage accrual | per season, birth-driven | one-off and cumulative | one-off, single campaign |
+| Status | wired, dormant this round (uptake 0) | **applied** | **applied** |
 
-| | Infant (maternal / birth-dose) | Adult |
-|---|---|---|
-| Eligibility | Birth cohort ∩ vaccination window | Calendar campaign coverage |
-| Waning indexed by | **Age band** — age equals time since dose | **Months since dose** (0–36) |
-| Waning source | `waning_by_band` in the config | `data/vaccine/waning_curves.csv` |
-| Uncertainty | Parametric draw on `vacc_IE` | Empirical — one whole curve per sample |
-| Coverage accrual | Per season, birth-driven | One-off and cumulative across seasons |
-| Status | Wired, dormant this round (uptake 0) | **Applied to admissions** |
+The infant and adult programmes are different products and must cover disjoint
+age bands — the config enforces it. The catch-up is the *same product* as the
+birth dose given on a calendar campaign, so it shares that programme's `vacc_IE`
+and `waning_by_band` and deliberately shares its age bands too.
 
-The adult programme's coverage and residual VE are produced by convolving the
-campaign uptake curve with the VE ensemble:
+### Why the catch-up needs its own eligibility rule
+
+A static band list cannot express it. The adult programme assumes the vaccinated
+group *is* an age band and stays it — true for a 67-year-old, who is still in
+`65-69` six months later. A catch-up defines the group once, on the day of the
+dose, and that group then **ages across bands** while the band refills with
+children who were never eligible.
+
+For an under-6-months campaign, the share of each band that is actually
+vaccinated moves like this:
+
+| Weeks after campaign | `0-2mo` | `3-5mo` | `6-11mo` |
+|---|---|---|---|
+| 0 | 100 % | 100 % | 0 % |
+| 13 | 0 % | 100 % | 51 % |
+| 26 | 0 % | 0 % | 100 % |
+
+So `6-11mo` — a band you would never have listed — ends up holding all of the
+protection, and `0-2mo` holds none. `eligibility_birth_cohort()` in
+[`R/campaign_protection.R`](R/campaign_protection.R) computes those fractions
+from the overlap of two birth-date windows.
+
+Note that doses and protection are counted in *different* bands: doses where the
+children were when injected, protection where they are when it acts.
+
+### The shared convolution
+
+Both campaign programmes produce coverage and residual VE by convolving the
+campaign uptake curve with their VE curve, weighted by eligibility:
 
 ```
-coverage(t)    = Σ  δ(w)              for vaccination weeks w ≤ t
-protection(t)  = Σ  δ(w) · VE(t − w)
-residual_ve(t) = protection(t) / coverage(t)
+coverage(b,t)    = Σ  δ(w) · w_elig(b,t,w)     for vaccination weeks w ≤ t
+protection(b,t)  = Σ  δ(w) · w_elig(b,t,w) · VE(t − w)
+residual_ve(b,t) = protection(b,t) / coverage(b,t)
 ```
+
+`w_elig` is the eligibility weight: identically 1 for the adult programme, so
+both sums collapse to the plain campaign convolution and its numbers are
+unchanged (verified bit-for-bit against the previous implementation).
 
 Because expected admissions are *linear* in VE, this coverage-weighted mean is
-exact rather than an approximation.
+exact rather than an approximation — and for the same reason the eligibility
+weight can be folded into the same sum.
 
-Both programmes emit the **same two-column contract** — `coverage` and
-`residual_ve` per (age band, week, sample) — and because the config forces them
-onto disjoint bands, the two tables are simply stacked. `apply_scenario()` then
-knows nothing about birth cohorts or campaigns; it just runs:
+All three programmes emit the **same two-column contract** — `coverage` and
+`residual_ve` per (age band, week, sample). `combine_protection()` merges them,
+summing within a band as programmes reaching disjoint people, and errors if the
+combined coverage exceeds 1. `apply_scenario()` then knows nothing about birth
+cohorts or campaigns; it just runs:
 
 ```
 no_vax = observed / (1 − coverage_baseline × residual_ve_baseline)
@@ -152,7 +188,7 @@ R/
   validate.R                      # fail-fast config/data consistency checks
   simulate_margins.R              # fixed-margin Monte-Carlo sampler
   apply_scenario.R                # INFANT programme: birth-window + scenario logic
-  adult_protection.R              # ADULT programme: campaign x waning convolution
+  campaign_protection.R           # ADULT + CATCH-UP: campaign x waning convolution
   load_data.R                     # config, data and waning-curve loaders
   format_submission.R             # RespiCompass submission formatting
   build_doses.R                   # administered-doses table
@@ -199,7 +235,7 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `births_file` / `population_file` | Paths to the auxiliary demographic data |
 | `age_group_aliases` | Optional rename of source age labels. Leave empty if the data already uses the desired labels |
 | `age_group_order` | Display order for plots. Optional; the fallback is alphabetical, which orders age bands wrongly |
-| `scenarios` | List of `{id, infant_uptake, adult_coverage}`. Drives the whole scenario set — `id` becomes `scenario_id` in the submission |
+| `scenarios` | List of `{id, infant_uptake, adult_coverage, catchup_coverage}`. Drives the whole scenario set — `id` becomes `scenario_id` in the submission |
 | `round_id` | RespiCompass round identifier |
 | `submission_horizon_anchor` | Anchor date for computing the `horizon` column |
 | `n_draws` / `mc_seed` | Monte-Carlo sample count and RNG seed |
@@ -225,6 +261,18 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `ve_beyond_curve` | Protection past month 36 — `zero` or `hold_last` |
 | `campaigns` | Campaign windows with `share` (portion of total coverage, must sum to 1) and `profile` (`uniform`) |
 | `baseline_coverage` | Adult coverage already reflected in the observed data (0 this round) |
+
+**`catchup_vaccination`**
+
+No VE or waning settings: it is the same product as the birth dose and takes
+`vacc_IE` and `waning_by_band` from `infant_vaccination`.
+
+| Parameter | Description |
+|-----------|-------------|
+| `age_at_campaign_months` | `[min, max)` age in months eligible **on the day of the dose**. `[0, 6]` is "every child under six months old that day" |
+| `age_bounds` | Every band the cohort can occupy over the horizon — not just the ones it starts in. Checked at load: bounds that run out before the last modelled week are a hard error, because the cohort would silently lose its protection part-way through |
+| `campaigns` | Campaign windows, same shape as the adult programme's |
+| `baseline_coverage` | Catch-up coverage already reflected in the observed data (0 — no such campaign has run) |
 
 > **Dates are declared, never guessed.** `as.Date("01/09/2025")` does not
 > return `NA` in R — it silently returns `0001-09-20`. Declaring the format in

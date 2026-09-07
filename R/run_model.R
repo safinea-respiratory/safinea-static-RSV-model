@@ -49,10 +49,11 @@ run_country <- function(cfg, country_name, country_iso2,
   }
 
   # ---- Protection tables ----
-  # Both programmes emit the same (coverage, residual_ve) contract, and
-  # the config forces them onto disjoint age bands, so the two tables can
-  # simply be stacked. apply_scenario() then needs to know nothing about
-  # birth cohorts or campaigns.
+  # All three programmes emit the same (coverage, residual_ve) contract,
+  # so apply_scenario() needs to know nothing about birth cohorts or
+  # campaigns. They are merged with combine_protection() rather than
+  # stacked: infant and catch-up deliberately share age bands, and two
+  # rows for one key would be joined twice.
   grid  <- baseline_df %>% distinct(age_group, target_end_date, sample)
   weeks <- unique(baseline_df$target_end_date)
 
@@ -65,17 +66,29 @@ run_country <- function(cfg, country_name, country_iso2,
                     sd   = cfg$infant$vacc_IE_sd)
   )
 
+  # The catch-up gives the INFANT product, so it takes its VE and waning
+  # from the infant block - the same vacc_IE draw as the birth dose - and
+  # not from the elderly vaccine's ensemble. What changes is the clock:
+  # re-indexed from age onto months since the dose.
+  catchup_waning <- build_infant_waning_curve(cfg$infant$age_bounds,
+                                              cfg$infant$waning_df,
+                                              ve_draws)
+
   # adult_bands varies per scenario: a scenario may retarget the adult
   # programme (e.g. 75+ instead of 65+) at the same coverage.
-  protection_for <- function(infant_uptake, adult_coverage, adult_bands) {
-    bind_rows(
+  protection_for <- function(infant_uptake, adult_coverage, adult_bands,
+                             catchup_coverage) {
+    combine_protection(
       build_infant_protection(grid, infant_uptake,
                               cfg$infant$vacc_start, cfg$infant$vacc_end,
                               cfg$infant$age_bounds, cfg$infant$waning_df,
                               ve_draws),
       build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
                              adult_coverage, cfg$adult$ve_beyond_curve,
-                             adult_bands)
+                             adult_bands),
+      build_catchup_protection(weeks, catchup_waning, cfg$catchup$campaigns,
+                               catchup_coverage,
+                               cfg$catchup$age_months, cfg$catchup$age_bounds)
     )
   }
 
@@ -85,7 +98,8 @@ run_country <- function(cfg, country_name, country_iso2,
   # happened, not a hypothetical targeting.
   protection_baseline <- protection_for(cfg$infant$baseline_uptake,
                                         cfg$adult$baseline_coverage,
-                                        cfg$adult$eligible_age_groups)
+                                        cfg$adult$eligible_age_groups,
+                                        cfg$catchup$baseline_coverage)
 
   # ---- Scenarios ----
   sc <- cfg$scenarios_df
@@ -93,7 +107,8 @@ run_country <- function(cfg, country_name, country_iso2,
     lapply(seq_len(nrow(sc)), function(i) {
       apply_scenario(baseline_df,
                      protection_for(sc$infant_uptake[i], sc$adult_coverage[i],
-                                    sc$adult_age_groups[[i]]),
+                                    sc$adult_age_groups[[i]],
+                                    sc$catchup_coverage[i]),
                      protection_baseline)
     }),
     sc$id

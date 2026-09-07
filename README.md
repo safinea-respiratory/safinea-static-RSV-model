@@ -235,6 +235,7 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `births_file` / `population_file` | Paths to the auxiliary demographic data |
 | `age_group_aliases` | Optional rename of source age labels. Leave empty if the data already uses the desired labels |
 | `age_group_order` | Display order for plots. Optional; the fallback is alphabetical, which orders age bands wrongly |
+| `expected_reduction_band` | Optional, default `true`. Draws the shaded reference band on the relative-change plot. Set `false` for a round the adult programme does not drive — the band is derived from adult coverage, so its denominator would not match the points |
 | `scenarios` | List of `{id, infant_uptake, adult_coverage, catchup_coverage}`. Drives the whole scenario set — `id` becomes `scenario_id` in the submission |
 | `round_id` | RespiCompass round identifier |
 | `submission_horizon_anchor` | Anchor date for computing the `horizon` column |

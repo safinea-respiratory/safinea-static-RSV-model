@@ -205,6 +205,23 @@ scenarios:
 
 
 # ============================================================ #
+# Impact plots
+#
+# The shaded reference band on the relative-change plot is switched OFF
+# for this round.
+#
+# It is derived from the ADULT programme - coverage x the elderly VE
+# ensemble, over months since that campaign - and the adult programme is
+# not running here. Even recomputed from the catch-up it would mislead:
+# the plotted points are the reduction across ALL infant bands, while
+# the catch-up reaches only one birth cohort within them, so a
+# coverage x VE band would sit far below its own points. A band whose
+# denominator disagrees with the points is worse than none.
+# ============================================================ #
+expected_reduction_band: false
+
+
+# ============================================================ #
 # Submission output
 # ============================================================ #
 round_id: "2025_2026_1_RSV_IRL"

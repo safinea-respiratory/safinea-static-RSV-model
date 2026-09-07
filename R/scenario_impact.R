@@ -267,6 +267,13 @@ compute_scenario_impact <- function(submission, cfg, raw) {
 # bars on the plot are Monte-Carlo uncertainty. Different quantities.
 expected_reduction <- function(cfg, week_season) {
 
+  # Opt out entirely. The band is derived from the ADULT programme's
+  # coverage and VE ensemble, so it only means anything when the adult
+  # campaign is what is driving the reduction being plotted. A round
+  # driven by a different programme would get a band whose denominator
+  # does not match its points, which is worse than no band at all.
+  if (isFALSE(cfg$expected_reduction_band)) return(tibble())
+
   curves <- read.csv(cfg$adult$waning_curves_path)
   ve_col <- curves[[cfg$adult$ve_target]]
   max_m  <- max(curves$month)

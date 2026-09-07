@@ -42,34 +42,7 @@
 #                    the ISO code GR that the mapping file gives
 # Both pairings were confirmed against population size.
 countries:
-  - {name: "Austria",        iso2: "AT"}
-  - {name: "Belgium",        iso2: "BE"}
-  - {name: "Bulgaria",       iso2: "BG"}
-  - {name: "Cyprus",         iso2: "CY"}
-  - {name: "Czech Republic", iso2: "CZ"}
-  - {name: "Germany",        iso2: "DE"}
-  - {name: "Denmark",        iso2: "DK"}
-  - {name: "Estonia",        iso2: "EE"}
-  - {name: "Greece",         iso2: "EL"}
-  - {name: "Spain",          iso2: "ES"}
-  - {name: "Finland",        iso2: "FI"}
-  - {name: "France",         iso2: "FR"}
-  - {name: "Croatia",        iso2: "HR"}
-  - {name: "Hungary",        iso2: "HU"}
   - {name: "Ireland",        iso2: "IE"}
-  - {name: "Italy",          iso2: "IT"}
-  - {name: "Lithuania",      iso2: "LT"}
-  - {name: "Luxembourg",     iso2: "LU"}
-  - {name: "Latvia",         iso2: "LV"}
-  - {name: "Malta",          iso2: "MT"}
-  - {name: "Netherlands",    iso2: "NL"}
-  - {name: "Norway",         iso2: "NO"}
-  - {name: "Poland",         iso2: "PL"}
-  - {name: "Portugal",       iso2: "PT"}
-  - {name: "Romania",        iso2: "RO"}
-  - {name: "Sweden",         iso2: "SE"}
-  - {name: "Slovenia",       iso2: "SI"}
-  - {name: "Slovakia",       iso2: "SK"}
 
 
 # ============================================================ #
@@ -152,13 +125,29 @@ infant_vaccination:
   # One entry per season the programme ran: every modelled season plus
   # the preceding one, since infants aged up to 4 years in a modelled
   # season may have been covered by an earlier season's programme.
+  #
+  # Windows must NOT overlap. Uptake is set per window below, so a birth
+  # date falling inside two of them would have no single uptake and both
+  # the coverage and the dose count would silently take the first match.
+  # Checked at load.
   windows:
-    start: ["2025-09-01", "2026-09-01", "2027-09-01"]
-    end:   ["2026-02-28", "2027-02-28", "2028-02-28"]
+    start: ["2024-09-01", "2025-09-01"]
+    end:   ["2025-02-28", "2026-02-28"]
 
   # Uptake reflected in the observed baseline data. The scenario
   # machinery back-calculates the no-vaccination counterfactual using
   # this value, then re-applies the scenario uptake.
+  #
+  # Accepts EITHER a single value applied to every window, OR one value
+  # PER WINDOW, so a programme that ramped up over successive seasons can
+  # be described as it actually happened:
+  #
+  #     baseline_uptake: [0.45, 0.83]     # first season, second season
+  #
+  # A birth cohort straddling two seasons then carries a blend of both
+  # years' uptake, weighted by how much of the cohort falls in each -
+  # which is what happens to a real cohort spanning a programme change.
+  # Each scenario's infant_uptake takes the same two forms.
   #
   # ZERO for the 2026/27 round: the infant programme is not in scope, so
   # the observed data is taken at face value and infant age bands pass

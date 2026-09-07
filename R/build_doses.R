@@ -2,9 +2,11 @@
 #
 # Doses come from ALL THREE programmes, each with its own denominator:
 #
-#   infant – monthly births, spread evenly across their days, masked to
-#            the vaccination windows per day, re-aggregated to ISO weeks
-#            and scaled by the scenario's infant uptake.
+#   infant – monthly births, spread evenly across their days, assigned to
+#            whichever vaccination window each day falls in, re-aggregated
+#            to ISO weeks and scaled by THAT window's uptake. Per-window
+#            uptake is what lets a programme that ran at different rates
+#            in different seasons be counted correctly.
 #   adult  – the eligible age bands' population multiplied by that week's
 #            NEW coverage increment from the campaign schedule. Because
 #            coverage is one-off and cumulative, the weekly increment is
@@ -57,14 +59,28 @@ build_dose_table <- function(baseline_df, births_df, population_df,
            births_day = m$births / nd)
   })
 
-  # Mask per DAY, so a week straddling a window boundary is credited only
-  # for the days actually inside the window.
-  weekly <- daily %>%
-    mutate(in_window       = map_lgl(day, ~ any(.x >= vacc_start & .x <= vacc_end)),
-           births_day      = ifelse(in_window, births_day, 0),
-           target_end_date = floor_date(day, "week", week_start = 1) + 6) %>%
-    group_by(target_end_date) %>%
+  # Which vaccination window each day falls in, or NA for days outside
+  # all of them. Masking per DAY means a week straddling a boundary is
+  # credited only for the days actually inside the window - and, now that
+  # uptake can differ by season, it also says WHICH season's uptake
+  # applies to those births.
+  daily <- daily %>%
+    mutate(window = map_int(day, function(d) {
+             hit <- which(d >= vacc_start & d <= vacc_end)
+             if (length(hit) == 0) NA_integer_ else hit[1]
+           }),
+           target_end_date = floor_date(day, "week", week_start = 1) + 6)
+
+  # Births in a window, kept per window so each can be scaled by its own
+  # uptake below.
+  weekly_by_window <- daily %>%
+    filter(!is.na(window)) %>%
+    group_by(target_end_date, window) %>%
     summarise(births = sum(births_day), .groups = "drop")
+
+  weekly <- weekly_by_window %>%
+    group_by(target_end_date) %>%
+    summarise(births = sum(births), .groups = "drop")
 
   # Births in a vaccination window but outside the modelled weeks would
   # otherwise disappear silently in the join below.
@@ -75,10 +91,10 @@ build_dose_table <- function(baseline_df, births_df, population_df,
             "excluded from the dose table.", call. = FALSE)
   }
 
-  infant_base <- dates_df %>%
-    left_join(weekly, by = "target_end_date") %>%
-    mutate(births = coalesce(births, 0)) %>%
-    select(target_end_date, births)
+  # Births per (week, window), restricted to the modelled grid. Each row
+  # is scaled by its own window's uptake when the doses are built.
+  infant_base <- weekly_by_window %>%
+    filter(target_end_date %in% dates_df$target_end_date)
 
   weeks_vec <- dates_df$target_end_date
 
@@ -171,7 +187,8 @@ build_dose_table <- function(baseline_df, births_df, population_df,
   dose_bands <- sort(unique(c(
     unlist(lapply(seq_len(nrow(sc)), function(i)
       if (sc$adult_coverage[i] > 0) sc$adult_age_groups[[i]] else character(0))),
-    if (any(sc$infant_uptake > 0)) cfg$infant$dose_age_group else character(0),
+    if (any(vapply(sc$infant_uptake, function(v) any(v > 0), logical(1))))
+      cfg$infant$dose_age_group else character(0),
     catchup_bands
   )))
 
@@ -185,11 +202,15 @@ build_dose_table <- function(baseline_df, births_df, population_df,
   # each targeted band.
   per_band <- bind_rows(lapply(seq_len(nrow(sc)), function(i) {
 
-    inf <- if (sc$infant_uptake[i] > 0) {
+    # Each window's births scaled by THAT window's uptake, so a programme
+    # that ran at different rates in different seasons produces different
+    # dose counts in each.
+    up <- sc$infant_uptake[[i]]
+    inf <- if (any(up > 0)) {
       infant_base %>%
         transmute(target_end_date,
                   age_group = cfg$infant$dose_age_group,
-                  doses     = births * sc$infant_uptake[i])
+                  doses     = births * up[window])
     } else tibble()
 
     adu <- adult_doses_for(sc$adult_coverage[i], sc$adult_age_groups[[i]])

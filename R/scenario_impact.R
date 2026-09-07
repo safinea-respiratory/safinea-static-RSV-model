@@ -74,7 +74,7 @@ week_season_map <- function(cfg, raw, weeks) {
 # (the baseline) has an empty set and is excluded from the impact tables.
 scenario_bands <- function(cfg, i) {
   sc <- cfg$scenarios_df
-  c(if (sc$infant_uptake[i]  > 0) cfg$infant$age_bounds$age_group else character(0),
+  c(if (any(sc$infant_uptake[[i]] > 0)) cfg$infant$age_bounds$age_group else character(0),
     if (sc$adult_coverage[i] > 0) sc$adult_age_groups[[i]]        else character(0))
 }
 

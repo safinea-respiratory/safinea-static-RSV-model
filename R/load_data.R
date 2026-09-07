@@ -107,6 +107,24 @@ load_config <- function(path = "config/static_model.yaml") {
 
   age_bounds <- parse_age_bounds(inf$age_bounds)
 
+  n_windows <- length(unlist(inf$windows$start))
+
+  # Infant uptake may be given per vaccination window, or as one value
+  # for all of them. Per-window is what lets a programme that ramped up
+  # over successive seasons be expressed - both for the coverage already
+  # in the observed data and for a scenario's hypothetical uptake.
+  parse_infant_uptake <- function(x, what) {
+    v <- as.numeric(unlist(x))
+    if (length(v) == 1) v <- rep(v, n_windows)
+    if (length(v) != n_windows) {
+      stop(what, " has ", length(v), " value(s) but infant_vaccination.",
+           "windows defines ", n_windows, " season(s).",
+           "\n  Give one uptake per window, or a single value for all.",
+           call. = FALSE)
+    }
+    v
+  }
+
   cfg$infant <- list(
     vacc_IE_mean    = inf$vacc_IE$mean,
     vacc_IE_sd      = inf$vacc_IE$sd,
@@ -114,7 +132,10 @@ load_config <- function(path = "config/static_model.yaml") {
     age_bounds      = age_bounds,
     vacc_start      = ymd(unlist(inf$windows$start)),
     vacc_end        = ymd(unlist(inf$windows$end)),
-    baseline_uptake = inf$baseline_uptake,
+    # One value per vaccination window (see parse_infant_uptake above)
+    baseline_uptake = parse_infant_uptake(inf$baseline_uptake,
+                                          "infant_vaccination.baseline_uptake"),
+    n_windows       = n_windows,
 
     # Which band infant doses are counted against. This is a birth-dose
     # product, so they are attributed to the youngest band - the birth
@@ -172,7 +193,12 @@ load_config <- function(path = "config/static_model.yaml") {
   # list-columns cleanly.
   cfg$scenarios_df <- tibble::tibble(
     id             = vapply(cfg$scenarios, function(s) as.character(s$id), character(1)),
-    infant_uptake  = vapply(cfg$scenarios, function(s) as.numeric(s$infant_uptake), numeric(1)),
+    # List-column: a scenario may set a different uptake per season, so
+    # this is a vector of length n_windows even when written as a scalar.
+    infant_uptake  = lapply(cfg$scenarios, function(s) {
+      parse_infant_uptake(s$infant_uptake,
+                          paste0('scenarios["', s$id, '"].infant_uptake'))
+    }),
     adult_coverage = vapply(cfg$scenarios, function(s) as.numeric(s$adult_coverage), numeric(1)),
 
     # Absent means zero, so an existing config without a catch-up column

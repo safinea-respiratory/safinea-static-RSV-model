@@ -12,27 +12,52 @@
 # ============================================================ #
 
 
-# For each (target_end_date, age_group) row, compute the fraction of
-# the implied birth cohort that was born inside the union of vaccination
-# windows. Used to split observed admissions between the "would have
-# been vaccinated" and "would not" strata.
+# For each (target_end_date, age_group) row, compute the fraction of the
+# implied birth cohort that was BORN INSIDE a vaccination window AND
+# vaccinated. Used both as the programme's coverage and to split observed
+# admissions between the "would have been vaccinated" and "would not"
+# strata.
+#
+# Uptake is PER WINDOW, so a programme that ran at 30 % in its first
+# season and 80 % in its second is expressible:
+#
+#   covered(band, t) = sum over seasons s of
+#                        uptake[s] x (birth window of band at t
+#                                       overlapping vaccination window s)
+#                      / width of the band's birth window
+#
+# A band straddling two seasons therefore carries a blend of both years'
+# uptake, weighted by how much of its birth cohort falls in each - which
+# is what actually happens to a cohort spanning a programme change.
+#
+# A scalar `uptake` is recycled across every window, giving the previous
+# single-rate behaviour exactly; uptake = 1 returns the plain proportion
+# born in a window.
 #
 # age_bounds: data.frame(age_group, min_mo, max_mo) from the config,
 #   giving each band's age span in months, [min inclusive, max exclusive).
 #   Bands absent from age_bounds are ones the infant programme never
-#   reached; they get prop_born_in_window = 0.
+#   reached; they get covered_prop = 0.
 #
-# vacc_start / vacc_end: Date vectors (one element per season)
-add_prop_born_in_window <- function(df, vacc_start, vacc_end, age_bounds,
-                                    age_col  = "age_group",
-                                    date_col = "target_end_date") {
+# vacc_start / vacc_end / uptake: vectors, one element per season
+add_infant_coverage <- function(df, vacc_start, vacc_end, age_bounds,
+                                uptake   = 1,
+                                age_col  = "age_group",
+                                date_col = "target_end_date") {
+
+  if (length(uptake) == 1) uptake <- rep(uptake, length(vacc_start))
+  if (length(uptake) != length(vacc_start)) {
+    stop("infant uptake has ", length(uptake), " value(s) but there are ",
+         length(vacc_start), " vaccination window(s); give one uptake per ",
+         "window, or a single value for all of them.", call. = FALSE)
+  }
 
   bounds <- age_bounds %>% rename(!!age_col := age_group)
 
-  # prop_born_in_window is a deterministic function of (age band, week)
-  # alone - it does not depend on the Monte-Carlo sample. Computing it on
-  # the distinct grid and joining back avoids repeating the rowwise work
-  # once per draw, which is an n_draws-fold saving (100x here).
+  # covered_prop is a deterministic function of (age band, week) alone -
+  # it does not depend on the Monte-Carlo sample. Computing it on the
+  # distinct grid and joining back avoids repeating the rowwise work once
+  # per draw, which is an n_draws-fold saving (100x here).
   key <- df %>% distinct(across(all_of(c(age_col, date_col))))
 
   key_prop <- key %>%
@@ -48,14 +73,16 @@ add_prop_born_in_window <- function(df, vacc_start, vacc_end, age_bounds,
                     else (!!sym(date_col)) %m-% months(min_mo),
 
       # Overlap between the cohort's birth window and each vaccination
-      # season window, summed across seasons.
+      # season window, each weighted by THAT season's uptake before
+      # summing. With a single uptake this is just uptake x total overlap.
       inter_days = case_when(
         is.na(birth_start) | is.na(birth_end) ~ 0,
         birth_end <= birth_start              ~ 0,
         TRUE ~ {
           inter_starts <- pmax(birth_start, vacc_start)
           inter_ends   <- pmin(birth_end,   vacc_end)
-          sum(pmax(0, as.numeric(inter_ends - inter_starts)), na.rm = TRUE)
+          sum(uptake * pmax(0, as.numeric(inter_ends - inter_starts)),
+              na.rm = TRUE)
         }
       ),
       denom_days = case_when(
@@ -63,13 +90,13 @@ add_prop_born_in_window <- function(df, vacc_start, vacc_end, age_bounds,
         birth_end <= birth_start              ~ 0,
         TRUE                                  ~ as.numeric(birth_end - birth_start)
       ),
-      prop_born_in_window = case_when(
+      covered_prop = case_when(
         is.infinite(denom_days) | denom_days <= 0 ~ 0,
         TRUE ~ pmax(0, pmin(1, inter_days / denom_days))
       )
     ) %>%
     ungroup() %>%
-    select(all_of(c(age_col, date_col)), prop_born_in_window)
+    select(all_of(c(age_col, date_col)), covered_prop)
 
   df %>% left_join(key_prop, by = c(age_col, date_col))
 }
@@ -127,6 +154,10 @@ check_backcalc_denominator <- function(df, floor = 1e-6, warn_below = 0.05) {
 # vaccination windows, and residual VE from the age band (age being the
 # same thing as time-since-dose here).
 #
+# uptake: one value per vaccination window, or a single value for all of
+#   them. Waning is unaffected by which season a child was dosed in -
+#   it depends only on age - so only coverage varies by year.
+#
 # ve_draws: data.frame(sample, vacc_IE), drawn once per country and shared
 #   across scenarios so a given sample index means the same VE world in
 #   every scenario.
@@ -138,12 +169,13 @@ build_infant_protection <- function(grid, uptake, vacc_start, vacc_end,
   # two rows per key and silently multiplying admissions in the join.
   grid %>%
     filter(age_group %in% age_bounds$age_group) %>%
-    add_prop_born_in_window(vacc_start, vacc_end, age_bounds) %>%
+    add_infant_coverage(vacc_start, vacc_end, age_bounds, uptake) %>%
     left_join(waning_df, by = "age_group") %>%
     # A band with no waning entry is one this programme does not reach
     mutate(waning = coalesce(waning, 0)) %>%
     left_join(ve_draws, by = "sample") %>%
-    mutate(coverage    = uptake * prop_born_in_window,
+    # Uptake is already folded in per window by add_infant_coverage()
+    mutate(coverage    = covered_prop,
            residual_ve = vacc_IE * waning) %>%
     select(age_group, target_end_date, sample, coverage, residual_ve)
 }

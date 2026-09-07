@@ -248,8 +248,22 @@ All parameters live in [`config/static_model.yaml`](config/static_model.yaml).
 | `vacc_IE` | Vaccine effectiveness distribution (`mean`, `sd`) |
 | `waning_by_band` | Residual protection per age band (1 = full initial protection, 0 = none left). Bands not listed default to 0 |
 | `age_bounds` | Age span of each band in months. List every band the programme has reached, **including fully-waned ones** — these bounds also drive the vaccinated/unvaccinated split |
-| `windows` | Vaccination window dates (one entry per season) |
-| `baseline_uptake` | Uptake already reflected in the observed data (0 this round) |
+| `windows` | Vaccination window dates (one entry per season). Must not overlap — checked at load, because uptake is set per window |
+| `baseline_uptake` | Uptake already reflected in the observed data (0 this round). Either one value for all windows, or **one value per window** |
+
+Infant uptake — both `baseline_uptake` and each scenario's `infant_uptake` — may
+be given per vaccination window, so a programme that ramped up over successive
+seasons is expressible as it actually happened:
+
+```yaml
+baseline_uptake: [0.45, 0.83]     # first season, second season
+```
+
+Coverage is then $\sum_s 	ext{uptake}_s 	imes 	ext{overlap}_s$ over the band's birth
+window rather than a single rate times the total overlap. A cohort straddling a
+programme change therefore carries a **blend** of both years, weighted by how
+much of it falls in each — e.g. a `1-4` band spanning 180 days of a 20 % season
+and 89 days of a 90 % season comes out at 43.2 %, not at either rate.
 
 **`adult_vaccination`**
 

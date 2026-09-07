@@ -186,7 +186,7 @@ validate_scenarios <- function(cfg) {
     stop("Every scenario needs a non-empty `id`.", call. = FALSE)
   }
 
-  for (col in c("infant_uptake", "adult_coverage", "catchup_coverage")) {
+  for (col in c("adult_coverage", "catchup_coverage")) {
     v   <- sc[[col]]
     bad <- which(is.na(v) | v < 0 | v > 1)
     if (length(bad) > 0) {
@@ -194,6 +194,19 @@ validate_scenarios <- function(cfg) {
            paste0(sc$id[bad], " = ", v[bad], collapse = ", "),
            call. = FALSE)
     }
+  }
+
+  # infant_uptake is a VECTOR per scenario - one value per vaccination
+  # window - so every element has to be checked, not just the first.
+  bad <- which(vapply(sc$infant_uptake,
+                      function(v) any(is.na(v) | v < 0 | v > 1), logical(1)))
+  if (length(bad) > 0) {
+    stop("scenarios: `infant_uptake` must lie in [0, 1] for every ",
+         "vaccination window.\n  Offending: ",
+         paste0(sc$id[bad], " = [",
+                vapply(sc$infant_uptake[bad], paste, character(1),
+                       collapse = ", "), "]", collapse = "; "),
+         call. = FALSE)
   }
 
   # A scenario asking for adult coverage with no bands to apply it to
@@ -388,6 +401,51 @@ validate_campaign_windows <- function(cfg, raw) {
 }
 
 
+# Infant vaccination windows must be well-formed and non-overlapping.
+#
+# Overlap matters now that uptake is per window: a birth day inside two
+# windows has two candidate uptakes, and both the coverage sum and the
+# dose attribution would quietly pick one. Non-overlapping windows make
+# the question unanswerable-by-construction instead.
+validate_infant_windows <- function(cfg) {
+
+  st <- cfg$infant$vacc_start
+  en <- cfg$infant$vacc_end
+
+  if (length(st) != length(en)) {
+    stop("infant_vaccination.windows: `start` has ", length(st),
+         " date(s) but `end` has ", length(en), ".", call. = FALSE)
+  }
+  if (any(is.na(st)) || any(is.na(en))) {
+    stop("infant_vaccination.windows contains an unparseable date.",
+         call. = FALSE)
+  }
+  if (any(en < st)) {
+    i <- which(en < st)[1]
+    stop("infant_vaccination.windows[", i, "] ends before it starts: ",
+         format(st[i]), " to ", format(en[i]), call. = FALSE)
+  }
+
+  if (length(st) > 1) {
+    ord <- order(st)
+    s <- st[ord]; e <- en[ord]
+    for (i in seq_len(length(s) - 1)) {
+      if (s[i + 1] <= e[i]) {
+        stop("infant_vaccination.windows ", i, " and ", i + 1, " overlap (",
+             format(s[i]), "-", format(e[i]), " and ",
+             format(s[i + 1]), "-", format(e[i + 1]), ").",
+             "\n  Uptake is set per window, so a birth date inside two of ",
+             "them has no single uptake and both coverage and doses would ",
+             "silently take the first match.",
+             call. = FALSE)
+      }
+    }
+  }
+
+  invisible(TRUE)
+}
+
+
 # The catch-up programme's own coherence checks.
 #
 # Its failure modes are all silent. A cohort that ages past every declared
@@ -451,6 +509,7 @@ validate_catchup_config <- function(cfg, raw) {
 validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
   validate_data_start(cfg, raw)
+  validate_infant_windows(cfg)
   validate_campaign_windows(cfg, raw)
   validate_catchup_config(cfg, raw)
   validate_adult_config(cfg)

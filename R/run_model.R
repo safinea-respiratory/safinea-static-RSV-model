@@ -106,7 +106,7 @@ run_country <- function(cfg, country_name, country_iso2,
   scenario_results <- setNames(
     lapply(seq_len(nrow(sc)), function(i) {
       apply_scenario(baseline_df,
-                     protection_for(sc$infant_uptake[i], sc$adult_coverage[i],
+                     protection_for(sc$infant_uptake[[i]], sc$adult_coverage[i],
                                     sc$adult_age_groups[[i]],
                                     sc$catchup_coverage[i]),
                      protection_baseline)

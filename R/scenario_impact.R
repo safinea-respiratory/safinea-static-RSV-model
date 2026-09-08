@@ -76,10 +76,20 @@ week_season_map <- function(cfg, raw, weeks) {
 # The age bands a scenario actually vaccinates. A programme with zero
 # uptake contributes nothing, so a scenario with no vaccination at all
 # (the baseline) has an empty set and is excluded from the impact tables.
+#
+# All THREE programmes count. Leaving the catch-up out made a scenario
+# that ran only a catch-up look like it vaccinated nobody, so it was
+# taken for the baseline - and the run then died claiming there were two
+# scenarios with no vaccination, naming one that plainly vaccinates.
+#
+# The catch-up's bands are the ones its cohort passes through, which
+# overlap the infant programme's, hence the unique().
 scenario_bands <- function(cfg, i) {
   sc <- cfg$scenarios_df
-  c(if (any(sc$infant_uptake[[i]] > 0)) cfg$infant$age_bounds$age_group else character(0),
-    if (sc$adult_coverage[i] > 0) sc$adult_age_groups[[i]]        else character(0))
+  unique(c(
+    if (any(sc$infant_uptake[[i]] > 0)) cfg$infant$age_bounds$age_group  else character(0),
+    if (sc$catchup_coverage[i]   > 0)   cfg$catchup$age_bounds$age_group else character(0),
+    if (sc$adult_coverage[i]     > 0)   sc$adult_age_groups[[i]]         else character(0)))
 }
 
 

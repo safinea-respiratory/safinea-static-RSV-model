@@ -80,8 +80,7 @@ age_group_aliases: {}
 
 # Display order for plots. Optional, but worth setting: the fallback is
 # alphabetical, which orders age bands wrongly.
-age_group_order: ["0-2mo", "3-5mo", "6-11mo", "1-4", "5-17", "18-59",
-                  "60-64", "65-69", "70-74", "75-79", "80+"]
+age_group_order: ["0-2mo", "3-5mo", "6-11mo", "1-4y", "5-64y", "65+y"]
 
 
 # ============================================================ #
@@ -107,7 +106,7 @@ infant_vaccination:
     "0-2mo":  0.97
     "3-5mo":  0.72
     "6-11mo": 0.30
-    "1-4":    0.00
+    "1-4y":   0.00
 
   # Age span of each band in MONTHS, [min inclusive, max exclusive].
   # Used to derive which birth cohort a band represents.
@@ -120,7 +119,7 @@ infant_vaccination:
     "0-2mo":  [0,  3]
     "3-5mo":  [3,  6]
     "6-11mo": [6,  12]
-    "1-4":    [12, 60]
+    "1-4y":   [12, 60]
 
   # One entry per season the programme ran: every modelled season plus
   # the preceding one, since infants aged up to 4 years in a modelled
@@ -154,7 +153,7 @@ infant_vaccination:
   # through unchanged (the back-calculation denominator becomes 1).
   # The machinery is retained for future rounds - set this to the real
   # coverage and give scenarios a non-zero infant_uptake to re-enable it.
-  baseline_uptake: 0.00
+  baseline_uptake: [0.83, 0.87] 
 
 
 # ============================================================ #
@@ -173,7 +172,7 @@ adult_vaccination:
   # the data, and must not overlap the infant programme's bands.
   # Change this list to retarget the programme - e.g. ["75-79", "80+"]
   # for a 75+ campaign, with no population-fraction approximation.
-  eligible_age_groups: ["65-69", "70-74", "75-79", "80+"]
+  eligible_age_groups: ["65+y"]
 
   # Waning ensemble: 500 realisations of the VE-over-time curve.
   # Sample d uses rep d. See data/vaccine/README.md for provenance.
@@ -206,8 +205,8 @@ adult_vaccination:
   #             "uniform" = equal increment each week.
   #
   campaigns:
-    - start:   "2026-10-04"
-      end:     "2026-10-04"
+    - start:   "2025-10-05"
+      end:     "2025-10-05"
       share:   1.0
       profile: "uniform"
 
@@ -256,7 +255,7 @@ catchup_vaccination:
     "0-2mo":  [0,  3]
     "3-5mo":  [3,  6]
     "6-11mo": [6,  12]
-    "1-4":    [12, 60]
+    "1-4y":   [12, 60]
 
   # One-off campaign. Matched against week-ending dates (Sundays), so a
   # window landing on any other weekday is a hard error.
@@ -266,15 +265,15 @@ catchup_vaccination:
   # March 2026, and this dataset's births only begin 2026-09-01, so its
   # doses could not be counted. A campaign here has full birth coverage.
   campaigns:
-    - start:   "2027-09-05"
-      end:     "2027-09-05"
+    - start:   "2025-09-07"
+      end:     "2025-09-07"
       share:   1.0
       profile: "uniform"
 
   # Catch-up coverage already reflected in the observed data. Zero: no
   # such campaign has run, so the observed admissions need no
   # back-calculation on this programme's account.
-  baseline_coverage: 0.00
+  baseline_coverage: 0.52
 
 # ============================================================ #
 # Scenarios
@@ -314,22 +313,35 @@ catchup_vaccination:
 # set - replace them once the real uptake levels are agreed.
 # ============================================================ #
 scenarios:
-  - id: "baseline"
+
+  # The zero-vaccination REFERENCE. Every impact table differences
+  # against it, and the model requires exactly one such scenario. It is
+  # a counterfactual, not the observed data: the observed admissions
+  # already contain the birth dose at baseline_uptake and a catch-up at
+  # baseline_coverage, so this arm back-calculates them upward to what
+  # they would have been with no vaccination at all.
+  - id: "no_vacc"
     infant_uptake:    0.00
     adult_coverage:   0.00
     catchup_coverage: 0.00
-  - id: "low_vacc"
-    infant_uptake:    0.00
-    adult_coverage:   0.20
+
+  # What actually happens: the birth dose at its real uptake, no
+  # catch-up. The arms below add a catch-up on top of it, so the
+  # difference from this one is the catch-up's own contribution.
+  - id: "current"
+    infant_uptake:    [0.83, 0.87]
+    adult_coverage:   0.00
+    catchup_coverage: 0.00
+
+  - id: "catchup_low"
+    infant_uptake:    [0.83, 0.87]
+    adult_coverage:   0.00
     catchup_coverage: 0.20
-  - id: "high_vacc"
-    infant_uptake:    0.00
-    adult_coverage:   0.70
+
+  - id: "catchup_high"
+    infant_uptake:    [0.83, 0.87]
+    adult_coverage:   0.00
     catchup_coverage: 0.70
-  - id: "super_high_vacc"
-    infant_uptake:    0.00
-    adult_coverage:   0.98
-    catchup_coverage: 0.98
 
 
 
@@ -344,8 +356,8 @@ scenarios:
 # NOTE: round_id carries no country suffix. hub-config/tasks.json makes
 # `location` a submission column, so the country is identified there
 # rather than in round_id.
-round_id: "2026_2027_1_RSV"
-submission_horizon_anchor: "2026-09-06"
+round_id: "2025_2026_1_RSV_IRL"
+submission_horizon_anchor: "2023-09-10"
 
 
 # ============================================================ #
@@ -355,7 +367,7 @@ submission_horizon_anchor: "2026-09-06"
 # onto the 2026-09 .. 2027-08 scenario period for every country, so the
 # previous forward-projection of a historical pattern is no longer
 # needed and has been removed.
-births_file: "data/population/births_by_month_2seasons.csv"
+births_file: "data/population/births_by_month_IE.csv"
 
 # Population by country x age band. The denominator for the adult
 # administered-doses track: weekly adult doses are that week's coverage
@@ -363,15 +375,15 @@ births_file: "data/population/births_by_month_2seasons.csv"
 # band in adult_vaccination.eligible_age_groups must be present here for
 # every configured country, or the denominator would silently be too
 # small - checked at load.
-population_file: "data/population/population_estimates.csv"
+population_file: "data/population/population_estimates_IE.csv"
 
 # ---- Epidemiological inputs ----
 # The *_2seasons files are DERIVED, not upstream: season 2 duplicates
 # season 1 shifted forward 364 days, generated by
 # scripts/make_two_seasons.R. Point these at the unsuffixed files to run
 # the single upstream season instead.
-epi_weekly_file: "data/epidemiological/hospitaladmissions_2seasons.csv"
-epi_burden_file: "data/epidemiological/hospitalburden_agegroups_2seasons.csv"
+epi_weekly_file: "data/epidemiological/hospitaladmissions_IE.csv"
+epi_burden_file: "data/epidemiological/hospitalburden_agegroups_IE.csv"
 
 
 # ============================================================ #
@@ -388,4 +400,4 @@ epi_burden_file: "data/epidemiological/hospitalburden_agegroups_2seasons.csv"
 # burden window start; it is checked at load.
 n_draws:    10
 mc_seed:    123
-data_start: "2026-08-01"
+data_start: "2023-09-10"

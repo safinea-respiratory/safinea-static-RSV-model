@@ -153,7 +153,7 @@ infant_vaccination:
   # through unchanged (the back-calculation denominator becomes 1).
   # The machinery is retained for future rounds - set this to the real
   # coverage and give scenarios a non-zero infant_uptake to re-enable it.
-  baseline_uptake: [0.83, 0.87] 
+  baseline_uptake: [0.83, 0.83] 
 
 
 # ============================================================ #
@@ -273,7 +273,7 @@ catchup_vaccination:
   # Catch-up coverage already reflected in the observed data. Zero: no
   # such campaign has run, so the observed admissions need no
   # back-calculation on this programme's account.
-  baseline_coverage: 0.52
+  baseline_coverage: 0.00
 
 # ============================================================ #
 # Scenarios
@@ -331,17 +331,23 @@ scenarios:
   - id: "current"
     infant_uptake:    [0.83, 0.87]
     adult_coverage:   0.00
-    catchup_coverage: 0.00
-
-  - id: "catchup_low"
+    catchup_coverage: 0.53
+  - id: "catch_up_40"
     infant_uptake:    [0.83, 0.87]
     adult_coverage:   0.00
-    catchup_coverage: 0.20
-
-  - id: "catchup_high"
+    catchup_coverage: 0.40
+  - id: "catch_up_60"
     infant_uptake:    [0.83, 0.87]
     adult_coverage:   0.00
-    catchup_coverage: 0.70
+    catchup_coverage: 0.60
+  - id: "catch_up_80"
+    infant_uptake:    [0.83, 0.87]
+    adult_coverage:   0.00
+    catchup_coverage: 0.80
+  - id: "infant_90"
+    infant_uptake:    [0.83, 0.90]
+    adult_coverage:   0.00
+    catchup_coverage: 0.53
 
 
 

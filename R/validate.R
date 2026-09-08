@@ -422,6 +422,59 @@ validate_campaign_windows <- function(cfg, raw) {
 }
 
 
+# The horizon anchor must sit on the modelled weekly grid.
+#
+# horizon is (week - anchor) / 7 truncated toward zero by as.integer().
+# When the anchor is OFF the grid, that truncation rounds negative
+# differences up and positive ones down, so the week before the anchor
+# and the week after it both land on horizon 0. Two weeks then share a
+# horizon, and the submission carries a full week of duplicate rows for
+# every scenario, draw and pop_group.
+#
+# Nothing about the data is wrong when that happens, so the failure
+# surfaces far downstream as "duplicate rows" and an off-by-one grid
+# count - which says nothing about the anchor. Hence this check.
+validate_horizon_anchor <- function(cfg, raw) {
+
+  weeks <- sort(unique(parse_dates_strict(
+    raw$admissions$target_end_date, cfg$input_date_formats$weekly_counts,
+    "hospitaladmissions.csv$target_end_date")))
+  weeks <- weeks[weeks >= ymd(cfg$data_start)]
+  if (length(weeks) == 0) return(invisible(TRUE))   # validate_data_start reports
+
+  a <- cfg$anchor
+  if (length(a) != 1 || is.na(a)) {
+    stop("submission_horizon_anchor is missing or unparseable.", call. = FALSE)
+  }
+
+  if (any(as.numeric(weeks - a) %% 7 != 0)) {
+    stop("submission_horizon_anchor (", format(a), ", a ", weekdays(a),
+         ") is not on the modelled weekly grid, whose weeks end on ",
+         weekdays(weeks[1]), "s.",
+         "\n  horizon is (week - anchor) / 7 truncated toward zero, so an ",
+         "off-grid anchor makes the week before it and the week after it ",
+         "collide on horizon 0.",
+         "\n  That surfaces later as duplicate submission rows rather than ",
+         "as an anchor problem.",
+         "\n  The first modelled week is ", format(min(weeks)), ".",
+         call. = FALSE)
+  }
+
+  if (a != min(weeks)) {
+    n <- as.integer((min(weeks) - a) / 7)
+    stop("submission_horizon_anchor (", format(a), ") is not the first ",
+         "modelled week (", format(min(weeks)), "), so horizon would ",
+         if (n > 0) paste0("start at ", n) else paste0("start at ", n,
+           " and run negative"),
+         " rather than at 0.",
+         "\n  Set it to ", format(min(weeks)), ", or move data_start.",
+         call. = FALSE)
+  }
+
+  invisible(TRUE)
+}
+
+
 # Infant vaccination windows must be well-formed and non-overlapping.
 #
 # Overlap matters now that uptake is per window: a birth day inside two
@@ -530,6 +583,7 @@ validate_catchup_config <- function(cfg, raw) {
 validate_global_config <- function(cfg, raw) {
   validate_countries(cfg, raw)
   validate_data_start(cfg, raw)
+  validate_horizon_anchor(cfg, raw)
   validate_infant_windows(cfg)
   validate_campaign_windows(cfg, raw)
   validate_catchup_config(cfg, raw)

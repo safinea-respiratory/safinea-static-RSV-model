@@ -44,32 +44,32 @@
 countries:
   - {name: "Austria",        iso2: "AT"}
   - {name: "Belgium",        iso2: "BE"}
-  - {name: "Bulgaria",       iso2: "BG"}
-  - {name: "Cyprus",         iso2: "CY"}
-  - {name: "Czech Republic", iso2: "CZ"}
-  - {name: "Germany",        iso2: "DE"}
-  - {name: "Denmark",        iso2: "DK"}
-  - {name: "Estonia",        iso2: "EE"}
-  - {name: "Greece",         iso2: "EL"}
-  - {name: "Spain",          iso2: "ES"}
-  - {name: "Finland",        iso2: "FI"}
-  - {name: "France",         iso2: "FR"}
-  - {name: "Croatia",        iso2: "HR"}
-  - {name: "Hungary",        iso2: "HU"}
-  - {name: "Ireland",        iso2: "IE"}
-  - {name: "Italy",          iso2: "IT"}
-  - {name: "Lithuania",      iso2: "LT"}
-  - {name: "Luxembourg",     iso2: "LU"}
-  - {name: "Latvia",         iso2: "LV"}
-  - {name: "Malta",          iso2: "MT"}
-  - {name: "Netherlands",    iso2: "NL"}
-  - {name: "Norway",         iso2: "NO"}
-  - {name: "Poland",         iso2: "PL"}
-  - {name: "Portugal",       iso2: "PT"}
-  - {name: "Romania",        iso2: "RO"}
-  - {name: "Sweden",         iso2: "SE"}
-  - {name: "Slovenia",       iso2: "SI"}
-  - {name: "Slovakia",       iso2: "SK"}
+  # - {name: "Bulgaria",       iso2: "BG"}
+  # - {name: "Cyprus",         iso2: "CY"}
+  # - {name: "Czech Republic", iso2: "CZ"}
+  # - {name: "Germany",        iso2: "DE"}
+  # - {name: "Denmark",        iso2: "DK"}
+  # - {name: "Estonia",        iso2: "EE"}
+  # - {name: "Greece",         iso2: "EL"}
+  # - {name: "Spain",          iso2: "ES"}
+  # - {name: "Finland",        iso2: "FI"}
+  # - {name: "France",         iso2: "FR"}
+  # - {name: "Croatia",        iso2: "HR"}
+  # - {name: "Hungary",        iso2: "HU"}
+  # - {name: "Ireland",        iso2: "IE"}
+  # - {name: "Italy",          iso2: "IT"}
+  # - {name: "Lithuania",      iso2: "LT"}
+  # - {name: "Luxembourg",     iso2: "LU"}
+  # - {name: "Latvia",         iso2: "LV"}
+  # - {name: "Malta",          iso2: "MT"}
+  # - {name: "Netherlands",    iso2: "NL"}
+  # - {name: "Norway",         iso2: "NO"}
+  # - {name: "Poland",         iso2: "PL"}
+  # - {name: "Portugal",       iso2: "PT"}
+  # - {name: "Romania",        iso2: "RO"}
+  # - {name: "Sweden",         iso2: "SE"}
+  # - {name: "Slovenia",       iso2: "SI"}
+  # - {name: "Slovakia",       iso2: "SK"}
 
 
 # ============================================================ #
@@ -256,18 +256,86 @@ adult_vaccination:
 # infant programme is out of scope this round but kept wired for later.
 # ============================================================ #
 scenarios:
-  - id: "baseline"
-    infant_uptake:  0.00
-    adult_coverage: 0.00
-  - id: "low_vacc"
-    infant_uptake:  0.00
-    adult_coverage: 0.20
-  - id: "high_vacc"
-    infant_uptake:  0.00
-    adult_coverage: 0.70
-  - id: "super_high_vacc"
-    infant_uptake:  0.00
-    adult_coverage: 0.98
+  # The zero-vaccination REFERENCE. Every impact table differences against
+  # it, and the model requires exactly one scenario that vaccinates nobody.
+  # adult_age_groups is listed for documentation only - at zero coverage it
+  # has no effect.
+  - id: "baseline"                          # Baseline scenario
+    infant_uptake:    0.00
+    adult_coverage:   0.00
+    adult_age_groups: ["60-64", "65-69", "70-74", "75-79", "80+"]
+
+  # ---------------------------------------------------------------- #
+  #  25 % uptake, five nested target groups
+  # ---------------------------------------------------------------- #
+  - id: "A.1-25"                           # 60+ age group, 25% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.25
+    adult_age_groups: ["60-64", "65-69", "70-74", "75-79", "80+"]
+  - id: "A.2-25"                           # 65+ age group, 25% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.25
+    adult_age_groups: ["65-69", "70-74", "75-79", "80+"]
+  - id: "A.3-25"                           # 70+ age group, 25% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.25
+    adult_age_groups: ["70-74", "75-79", "80+"]
+  - id: "A.4-25"                           # 75+ age group, 25% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.25
+    adult_age_groups: ["75-79", "80+"]
+  - id: "A.5-25"                           # 80+ age group, 25% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.25
+    adult_age_groups: ["80+"]
+
+  # ---------------------------------------------------------------- #
+  #  50 % uptake, five nested target groups
+  # ---------------------------------------------------------------- #
+  - id: "A.1-50"                           # 60+ age group, 50% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["60-64", "65-69", "70-74", "75-79", "80+"]
+  - id: "A.2-50"                           # 65+ age group, 50% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["65-69", "70-74", "75-79", "80+"]
+  - id: "A.3-50"                           # 70+ age group, 50% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["70-74", "75-79", "80+"]
+  - id: "A.4-50"                           # 75+ age group, 50% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["75-79", "80+"]
+  - id: "A.5-50"                           # 80+ age group, 50% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["80+"]
+
+  # ---------------------------------------------------------------- #
+  #  75 % uptake, five nested target groups
+  # ---------------------------------------------------------------- #
+  - id: "A.1-75"                           # 60+ age group, 75% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.75
+    adult_age_groups: ["60-64", "65-69", "70-74", "75-79", "80+"]
+  - id: "A.2-75"                           # 65+ age group, 75% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.75
+    adult_age_groups: ["65-69", "70-74", "75-79", "80+"]
+  - id: "A.3-75"                           # 70+ age group, 75% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.75
+    adult_age_groups: ["70-74", "75-79", "80+"]
+  - id: "A.4-75"                           # 75+ age group, 75% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.75
+    adult_age_groups: ["75-79", "80+"]
+  - id: "A.5-75"                           # 80+ age group, 75% uptake
+    infant_uptake:    0.00
+    adult_coverage:   0.75
+    adult_age_groups: ["80+"]
 
 
 
@@ -324,6 +392,6 @@ epi_burden_file: "data/epidemiological/hospitalburden_agegroups_2seasons.csv"
 # value AFTER the window start discards the entire age-stratified table
 # and the sampler has nothing to draw from. Keep it at or before the
 # burden window start; it is checked at load.
-n_draws:    10
+n_draws:    5
 mc_seed:    123
 data_start: "2026-08-01"

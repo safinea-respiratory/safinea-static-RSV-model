@@ -65,14 +65,20 @@ run_country <- function(cfg, country_name, country_iso2,
                     sd   = cfg$infant$vacc_IE_sd)
   )
 
+  # The infant table's expensive part - the rowwise birth-window overlap -
+  # does not depend on uptake, so it is built ONCE here and each scenario
+  # just scales it. With 16 scenarios this is the difference between one
+  # rowwise pass per country and seventeen.
+  infant_base <- build_infant_base(grid,
+                                   cfg$infant$vacc_start, cfg$infant$vacc_end,
+                                   cfg$infant$age_bounds, cfg$infant$waning_df,
+                                   ve_draws)
+
   # adult_bands varies per scenario: a scenario may retarget the adult
   # programme (e.g. 75+ instead of 65+) at the same coverage.
   protection_for <- function(infant_uptake, adult_coverage, adult_bands) {
     bind_rows(
-      build_infant_protection(grid, infant_uptake,
-                              cfg$infant$vacc_start, cfg$infant$vacc_end,
-                              cfg$infant$age_bounds, cfg$infant$waning_df,
-                              ve_draws),
+      scale_infant_protection(infant_base, infant_uptake),
       build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
                              adult_coverage, cfg$adult$ve_beyond_curve,
                              adult_bands)

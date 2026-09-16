@@ -130,12 +130,19 @@ check_backcalc_denominator <- function(df, floor = 1e-6, warn_below = 0.05) {
 # ve_draws: data.frame(sample, vacc_IE), drawn once per country and shared
 #   across scenarios so a given sample index means the same VE world in
 #   every scenario.
-build_infant_protection <- function(grid, uptake, vacc_start, vacc_end,
-                                    age_bounds, waning_df, ve_draws) {
-
-  # Emit rows ONLY for bands this programme covers. Returning a row for
-  # every band would collide with the adult table on bind_rows(), giving
-  # two rows per key and silently multiplying admissions in the join.
+# Everything in the infant protection table EXCEPT the uptake scaling.
+#
+# Split out because prop_born_in_window is rowwise calendar arithmetic and
+# is by far the most expensive step in the whole model - yet it does not
+# depend on uptake at all. Computing it once per country and scaling it
+# per scenario turns N_scenario rowwise passes into one. With 16
+# scenarios that is ~24 s per country down to ~1.4 s.
+#
+# Emits rows ONLY for bands this programme covers. Returning a row for
+# every band would collide with the adult table on bind_rows(), giving
+# two rows per key and silently multiplying admissions in the join.
+build_infant_base <- function(grid, vacc_start, vacc_end,
+                              age_bounds, waning_df, ve_draws) {
   grid %>%
     filter(age_group %in% age_bounds$age_group) %>%
     add_prop_born_in_window(vacc_start, vacc_end, age_bounds) %>%
@@ -143,9 +150,27 @@ build_infant_protection <- function(grid, uptake, vacc_start, vacc_end,
     # A band with no waning entry is one this programme does not reach
     mutate(waning = coalesce(waning, 0)) %>%
     left_join(ve_draws, by = "sample") %>%
-    mutate(coverage    = uptake * prop_born_in_window,
-           residual_ve = vacc_IE * waning) %>%
+    mutate(residual_ve = vacc_IE * waning) %>%
+    select(age_group, target_end_date, sample, prop_born_in_window, residual_ve)
+}
+
+
+# Apply one scenario's uptake to a base table. Just a multiplication -
+# this is the only part of the infant programme that varies by scenario.
+scale_infant_protection <- function(base, uptake) {
+  base %>%
+    mutate(coverage = uptake * prop_born_in_window) %>%
     select(age_group, target_end_date, sample, coverage, residual_ve)
+}
+
+
+# One-shot form, for callers that want a single table and do not care
+# about reuse. Identical output to base + scale.
+build_infant_protection <- function(grid, uptake, vacc_start, vacc_end,
+                                    age_bounds, waning_df, ve_draws) {
+  scale_infant_protection(
+    build_infant_base(grid, vacc_start, vacc_end, age_bounds, waning_df, ve_draws),
+    uptake)
 }
 
 

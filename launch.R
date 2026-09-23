@@ -31,6 +31,7 @@ library(lubridate)
 library(data.table)
 library(yaml)
 library(ggplot2)
+library(arrow)
 library(nanoparquet)
 
 source("R/utils.R")
@@ -65,20 +66,33 @@ adult_waning <- load_waning_curves(cfg, n_draws = cfg$n_draws)
 
 
 # ---- Run every configured country ------------------------------
-results    <- run_all_countries(cfg, adult_waning, raw)
-submission <- results$submission
+# Streaming: each country validates its own rows, reduces them to its
+# impact tables, writes its own parquet part, and returns only that
+# summary. Nothing large is ever held.
+#
+# The whole submission is ~14 GB at 28 countries, 16 scenarios and 100
+# draws. Building it in memory needs more RAM than most machines have,
+# and under a cluster it was also the bottleneck - serialising 500 MB per
+# country back to the parent cost about what the parallelism saved.
+#
+# workers = 1 is serial. It caps itself against free memory either way.
+PARTS <- file.path("output", "parts")
 
+results <- run_all_countries(cfg, adult_waning, raw,
+                             workers = 6,
+                             out_dir = PARTS)
 
-# ---- Check the output before anything consumes it ---------------
-# Internal consistency: identifiers match the config, the grid is
-# complete, no duplicates, immYes + immNo == immTotal, and the all-ages
-# totals equal the sum over bands. Errors list every problem at once.
-validate_submission(submission, cfg)
+# Every configured country must have produced a part. Everything else -
+# grid completeness, duplicates, immYes + immNo == immTotal, the all-ages
+# totals - was already checked per country as it was built.
+validate_submission_set(results$summary, cfg)
 
 
 # ---- Diagnostic plots (uncomment to view) ----------------------
-# Per-country objects live in results$by_country[["IE"]]
-# ie <- results$by_country[["IE"]]
+# These need the per-country objects, which streaming does not keep. To
+# use them, re-run one country on its own:
+#
+#   ie <- run_country(cfg, "Ireland", "IE", adult_waning, raw)
 #
 # plot_baseline_samples(ie$baseline_df)
 # plot_scenario_comparison(submission %>% filter(location == "IE"))
@@ -95,22 +109,29 @@ validate_submission(submission, cfg)
 # admissions averted and doses, absolute and per 100k of total or
 # eligible population. Every interval is over PAIRED samples - scenario
 # minus baseline within a draw - so the pairing is not thrown away.
-impact <- compute_scenario_impact(submission, cfg, raw)
+# Already computed per country and bound here - every group_by and join
+# in compute_scenario_impact() carries `location`, so splitting by
+# country and binding gives the identical tables.
+impact <- results$impact
 write_scenario_impact(impact, "output/3_results")
 
 # Reference band for the relative-change plots, one per scenario AND
 # season: -100 x coverage x mean VE, spanning the range of dose ages that
 # season contains. With a single autumn campaign that is roughly months
 # 0-11 in the first season and 12-23 in the second.
-expected <- expected_reduction(
-  cfg, week_season_map(cfg, raw, unique(submission$target_end_date)))
+all_weeks <- sort(unique(parse_dates_strict(
+  raw$admissions$target_end_date, cfg$input_date_formats$weekly_counts,
+  "hospitaladmissions.csv$target_end_date")))
+all_weeks <- all_weeks[all_weeks >= ymd(cfg$data_start)]
+expected  <- expected_reduction(cfg, week_season_map(cfg, raw, all_weeks))
 
 impact_figures <- build_impact_plots(impact, expected,
                                      dir = "output/3_results/figures")
 
 
 # ---- Persist ---------------------------------------------------
-# Writes output/<round_id>_staticModel.parquet, creating the directory if
-# needed. Pass `path` to override. output/ is gitignored.
-write_submission(submission, cfg)
+# Concatenate the per-country parts into the single dense file the hub
+# expects. Arrow writes it row group by row group, so peak memory is one
+# country rather than the whole 14 GB.
+write_submission_parts(results$parts, cfg)
 

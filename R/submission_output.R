@@ -243,16 +243,148 @@ validate_submission <- function(submission, cfg, sample_draws = 5) {
 #
 # The default filename is derived from round_id so successive rounds do
 # not overwrite one another.
-write_submission <- function(submission, cfg, path = NULL) {
+# zstd rather than gzip. Measured on this submission's shape, gzip costs
+# 7.6 s per million rows against zstd's 0.55 s - 25 minutes versus under
+# two for a full round - for 7 % less file. Both read back in arrow and
+# in nanoparquet.
+SUBMISSION_COMPRESSION <- "zstd"
+
+write_submission <- function(submission, cfg, path = NULL,
+                             compression = SUBMISSION_COMPRESSION) {
 
   if (is.null(path)) {
     path <- file.path("output", paste0(cfg$round_id, "_staticModel.parquet"))
   }
   dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE)
 
-  nanoparquet::write_parquet(submission, path, compression = "gzip")
+  arrow::write_parquet(submission, path, compression = compression)
 
   message("Wrote ", format(nrow(submission), big.mark = ","), " rows to ", path,
           " (", round(file.size(path) / 1024^2, 2), " MB)")
   invisible(path)
+}
+
+
+# Concatenate per-country parquet parts into the single dense file the
+# hub expects, WITHOUT ever holding the whole thing.
+#
+# The submission is ~14 GB in memory at 28 countries, 16 scenarios and
+# 100 draws, so binding the parts and writing once needs more RAM than
+# most machines have - and it is the reason a parallel run was killed
+# with "error reading from connection". Arrow writes row group by row
+# group, so peak memory is one country.
+#
+# Parts must share a schema; a mismatch would otherwise be written as a
+# ragged file that only fails when something tries to read it.
+write_submission_parts <- function(parts, cfg, path = NULL,
+                                   compression = SUBMISSION_COMPRESSION) {
+
+  if (length(parts) == 0) {
+    stop("No submission parts to concatenate.", call. = FALSE)
+  }
+
+  # The parts must be exactly one per configured country.
+  #
+  # Callers are meant to pass the paths run_all_countries() returned. The
+  # tempting alternative - globbing the parts directory - would silently
+  # mix runs, and the schema check below cannot see that: parts from a
+  # different run have the SAME schema. Checking against the config is
+  # what makes the mistake an error rather than a wrong file.
+  missing <- parts[!file.exists(parts)]
+  if (length(missing) > 0) {
+    stop("Submission part(s) not found:
+  ",
+         paste(missing, collapse = "
+  "), call. = FALSE)
+  }
+
+  got  <- tools::file_path_sans_ext(basename(parts))
+  want <- cfg$countries_df$iso2
+  if (!setequal(got, want) || anyDuplicated(got) > 0) {
+    stop("The parts given do not match the configured countries - one per ",
+         "country is expected.",
+         if (length(setdiff(want, got)))
+           paste0("
+  Missing: ", paste(setdiff(want, got), collapse = ", ")),
+         if (length(setdiff(got, want)))
+           paste0("
+  Unexpected: ", paste(setdiff(got, want), collapse = ", ")),
+         if (anyDuplicated(got) > 0)
+           paste0("
+  Duplicated: ",
+                  paste(unique(got[duplicated(got)]), collapse = ", ")),
+         "
+  Pass the paths run_all_countries() returned in $parts rather ",
+         "than listing the directory; parts left by an earlier run look ",
+         "identical and would be merged in silently.",
+         call. = FALSE)
+  }
+  if (is.null(path)) {
+    path <- file.path("output", paste0(cfg$round_id, "_staticModel.parquet"))
+  }
+  dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE)
+
+  sch  <- arrow::open_dataset(parts[1], format = "parquet")$schema
+  sink <- arrow::FileOutputStream$create(path)
+  on.exit(try(sink$close(), silent = TRUE), add = TRUE)
+
+  w <- arrow::ParquetFileWriter$create(
+    sch, sink,
+    properties = arrow::ParquetWriterProperties$create(
+      column_names = names(sch), compression = compression))
+
+  n <- 0
+  for (p in parts) {
+    tb <- arrow::read_parquet(p, as_data_frame = FALSE)
+    if (!identical(names(tb$schema), names(sch))) {
+      stop("Submission part ", basename(p), " has different columns from ",
+           basename(parts[1]), ".",
+           "
+  ", basename(parts[1]), ": ", paste(names(sch), collapse = ", "),
+           "
+  ", basename(p), ": ", paste(names(tb$schema), collapse = ", "),
+           call. = FALSE)
+    }
+    w$WriteTable(tb, chunk_size = 1e6)
+    n <- n + tb$num_rows
+  }
+  w$Close(); sink$close()
+
+  message("Wrote ", format(n, big.mark = ","), " rows from ", length(parts),
+          " part(s) to ", path, " (", round(file.size(path) / 1024^2, 2), " MB)")
+  invisible(path)
+}
+
+
+# The one check that is NOT per country: every configured country must
+# have produced a part.
+#
+# Each country validates its own rows as it is built, against a config
+# narrowed to itself - so grid completeness, duplicates and the strata
+# identities are all already covered. What a per-country check cannot
+# see is a country that silently produced nothing at all.
+validate_submission_set <- function(results, cfg) {
+
+  got  <- vapply(results, function(r) r$location, character(1), USE.NAMES = FALSE)
+  want <- cfg$countries_df$iso2
+
+  absent <- setdiff(want, got)
+  extra  <- setdiff(got,  want)
+  if (length(absent) > 0 || length(extra) > 0) {
+    stop("The submission parts do not match the configured countries.",
+         if (length(absent)) paste0("
+  Missing: ", paste(absent, collapse = ", ")),
+         if (length(extra))  paste0("
+  Unexpected: ", paste(extra, collapse = ", ")),
+         call. = FALSE)
+  }
+  if (anyDuplicated(got) > 0) {
+    stop("More than one part for: ",
+         paste(unique(got[duplicated(got)]), collapse = ", "), call. = FALSE)
+  }
+
+  message("All ", length(want), " countries produced a part (",
+          format(sum(vapply(results, function(r) r$n_rows, numeric(1))),
+                 big.mark = ","), " rows).")
+  invisible(TRUE)
 }

@@ -18,7 +18,8 @@
 #   $baseline_df     – the raw Monte-Carlo samples
 #   $adult_protection – named list of coverage/residual-VE per scenario
 run_country <- function(cfg, country_name, country_iso2,
-                        adult_waning, raw, quiet = FALSE) {
+                        adult_waning, raw, quiet = FALSE,
+                        out_dir = NULL, check = TRUE) {
 
   epi    <- load_epidemiological_data(cfg, country_name, raw)
   validate_age_groups(cfg, epi, quiet = quiet)
@@ -105,6 +106,42 @@ run_country <- function(cfg, country_name, country_iso2,
   submission <- bind_rows(submission_pre, doses_df) %>%
     mutate(location = country_iso2)
 
+  # ---- streaming mode ----
+  # With out_dir set, this country is finished here: it validates its own
+  # rows, reduces them to its impact tables, writes its own parquet and
+  # returns only that summary.
+  #
+  # Nothing large then travels. A country's submission is ~500 MB, so
+  # handing 28 of them back to the caller is ~14 GB - more than most
+  # machines have, and the reason a parallel run died mid-flight. Under a
+  # PSOCK cluster it was also the bottleneck: serialising half a gigabyte
+  # per country cost about what the parallelism saved.
+  #
+  # Both checks are defined per location - every group_by and join in
+  # compute_scenario_impact() carries it, and validate_submission()'s
+  # grid, duplicate and strata checks are all within-country - so they
+  # take a config narrowed to this one country. The only thing a
+  # per-country check cannot see is a country that produced nothing;
+  # validate_submission_set() covers that.
+  if (!is.null(out_dir)) {
+
+    cfg1 <- cfg
+    cfg1$countries_df <- cfg$countries_df[cfg$countries_df$iso2 == country_iso2,
+                                          , drop = FALSE]
+    if (check) validate_submission(submission, cfg1)
+    impact <- compute_scenario_impact(submission, cfg1, raw)
+
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+    path <- file.path(out_dir, paste0(country_iso2, ".parquet"))
+    arrow::write_parquet(submission, path,
+                         compression = SUBMISSION_COMPRESSION)
+
+    return(list(path     = path,
+                location = country_iso2,
+                n_rows   = nrow(submission),
+                impact   = impact))
+  }
+
   # Adult coverage / residual VE per scenario, kept for inspection via
   # plot_adult_protection(). These now feed the admissions above rather
   # than sitting unused.
@@ -178,15 +215,31 @@ estimate_country_gb <- function(cfg, bytes_per_row = 76) {
 
 run_all_countries <- function(cfg, adult_waning, raw,
                               workers         = 1L,
-                              keep_by_country = TRUE) {
+                              keep_by_country = TRUE,
+                              out_dir         = NULL,
+                              check           = TRUE) {
 
   cs <- cfg$countries_df
   n  <- nrow(cs)
 
   one <- function(i) {
     r <- run_country(cfg, cs$name[i], cs$iso2[i], adult_waning, raw,
-                     quiet = (i > 1))
-    if (keep_by_country) r else list(submission = r$submission)
+                     quiet = (i > 1), out_dir = out_dir, check = check)
+    if (!is.null(out_dir) || keep_by_country) r
+    else list(submission = r$submission)
+  }
+
+  # A run's parts should be exactly that run's. Without this, a run over
+  # fewer countries - or one that died part-way - leaves the previous
+  # run's parts sitting alongside the new ones, identical in name and
+  # schema and indistinguishable from them.
+  if (!is.null(out_dir)) {
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+    stale <- list.files(out_dir, pattern = "[.]parquet$", full.names = TRUE)
+    if (length(stale) > 0) {
+      message("Clearing ", length(stale), " existing part(s) from ", out_dir)
+      unlink(stale)
+    }
   }
 
   workers <- max(1L, min(as.integer(workers), n, parallel::detectCores()))
@@ -204,7 +257,10 @@ run_all_countries <- function(cfg, adult_waning, raw,
       # The parent ends up holding every country; workers add their own
       # copy on top. Leave a third of free memory as headroom for the
       # copies rbindlist makes.
-      budget <- free_gb * 0.66 - per_gb * n
+      # In streaming mode the parent holds nothing, so only the workers'
+      # own copies count against the budget.
+      held   <- if (is.null(out_dir)) per_gb * n else 0
+      budget <- free_gb * 0.66 - held
       fit    <- max(1L, floor(budget / per_gb))
       if (fit < workers) {
         message("Limiting to ", fit, " worker(s): ", signif(free_gb, 3),
@@ -234,17 +290,30 @@ run_all_countries <- function(cfg, adult_waning, raw,
       })
       for (f in c("utils", "validate", "simulate_margins", "apply_scenario",
                   "adult_protection", "scenario_engine", "load_data",
-                  "format_submission", "build_doses", "run_model")) {
+                  "format_submission", "build_doses", "run_model",
+                  "submission_output", "scenario_impact")) {
         source(file.path("R", paste0(f, ".R")))
       }
       NULL
     })
     parallel::clusterExport(cl, c("cfg", "cs", "adult_waning", "raw",
-                                  "one", "keep_by_country"),
+                                  "one", "keep_by_country", "out_dir", "check"),
                             envir = environment())
     results <- parallel::parLapplyLB(cl, seq_len(n), one)
   }
   names(results) <- cs$iso2
+
+  # Streaming: the parts are on disk and only the small impact tables
+  # come back. They are already keyed by location, so binding them is
+  # exactly the table a whole-submission run would have produced.
+  if (!is.null(out_dir)) {
+    nms <- names(results[[1]]$impact)
+    impact <- setNames(lapply(nms, function(nm)
+      rbindlist(lapply(results, function(r) r$impact[[nm]]))), nms)
+    return(list(parts  = vapply(results, function(r) r$path, character(1)),
+                impact = impact,
+                summary = results))
+  }
 
   submission <- rbindlist(lapply(results, `[[`, "submission"))
   if (!keep_by_country) results <- NULL

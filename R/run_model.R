@@ -74,42 +74,20 @@ run_country <- function(cfg, country_name, country_iso2,
                                    cfg$infant$age_bounds, cfg$infant$waning_df,
                                    ve_draws)
 
-  # adult_bands varies per scenario: a scenario may retarget the adult
-  # programme (e.g. 75+ instead of 65+) at the same coverage.
-  protection_for <- function(infant_uptake, adult_coverage, adult_bands) {
-    bind_rows(
-      scale_infant_protection(infant_base, infant_uptake),
-      build_adult_protection(weeks, adult_waning, cfg$adult$campaigns,
-                             adult_coverage, cfg$adult$ve_beyond_curve,
-                             adult_bands)
-    )
-  }
-
-  # Coverage already embedded in the observed data - drives the
-  # back-calculation for every scenario. This uses the programme-wide
-  # bands, not any scenario's override: it describes what actually
-  # happened, not a hypothetical targeting.
-  protection_baseline <- protection_for(cfg$infant$baseline_uptake,
-                                        cfg$adult$baseline_coverage,
-                                        cfg$adult$eligible_age_groups)
-
   # ---- Scenarios ----
-  sc <- cfg$scenarios_df
-  scenario_results <- setNames(
-    lapply(seq_len(nrow(sc)), function(i) {
-      apply_scenario(baseline_df,
-                     protection_for(sc$infant_uptake[i], sc$adult_coverage[i],
-                                    sc$adult_age_groups[[i]]),
-                     protection_baseline)
-    }),
-    sc$id
+  # Every scenario is an elementwise multiply of the baseline draw, so
+  # this is done as [week, band, draw] array arithmetic rather than by
+  # joining and pivoting a long frame once per scenario. Same rows, same
+  # values; see R/scenario_engine.R for why it is exact.
+  submission_pre <- scenario_submission(
+    baseline_df  = baseline_df,
+    cfg          = cfg,
+    adult_waning = adult_waning,
+    ve_draws     = ve_draws,
+    infant_base  = infant_base
   )
 
-  submission_pre <- assemble_submission(
-    scenario_results = scenario_results,
-    round_id         = cfg$round_id,
-    anchor           = cfg$anchor
-  )
+  sc <- cfg$scenarios_df
 
   # ---- Administered doses ----
   doses_df <- build_dose_table(
@@ -153,20 +131,123 @@ run_country <- function(cfg, country_name, country_iso2,
 # draws and its own submission rows, distinguished by `location`. The
 # same mc_seed is used throughout, so the vaccine-effectiveness draws
 # are shared across countries - defensible, since it is the same vaccine.
-run_all_countries <- function(cfg, adult_waning, raw) {
+#
+# workers > 1 runs them on a PSOCK cluster. Independence is what makes
+# that safe: no country reads another's state, and each seeds its own
+# sampler from cfg$mc_seed, so the result does not depend on how the work
+# was divided or on how many workers ran it.
+#
+# keep_by_country = FALSE drops the per-country objects once their
+# submission rows have been taken. They exist for the diagnostic plots
+# and are worth several hundred MB per country at submission scale, so
+# holding all 28 is usually the largest thing in the session.
+# Free physical memory in GB, or NA where it cannot be read.
+free_ram_gb <- function() {
+  out <- tryCatch(
+    switch(Sys.info()[["sysname"]],
+      Windows = {
+        # CIM rather than wmic: wmic is deprecated and absent on
+        # current Windows 11, where it returns nothing at all.
+        x <- system2("powershell",
+                     c("-NoProfile", "-Command",
+                       "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"),
+                     stdout = TRUE, stderr = FALSE)
+        as.numeric(trimws(x[length(x)])) / 1024^2     # KB -> GB
+      },
+      Linux = {
+        x <- readLines("/proc/meminfo")
+        as.numeric(gsub("[^0-9]", "",
+                        grep("^MemAvailable", x, value = TRUE))) / 1024^2
+      },
+      NA_real_),
+    error = function(e) NA_real_, warning = function(w) NA_real_)
+  if (length(out) != 1 || !is.finite(out) || out <= 0) NA_real_ else out
+}
+
+
+# Rough size of one country's submission, in GB. Rows are the product of
+# the grid; 76 bytes/row is what the assembled table measures at.
+estimate_country_gb <- function(cfg, bytes_per_row = 76) {
+  n_pg   <- length(unlist(cfg$age_group_order)) * 3 + 3      # bands + total_*
+  n_dose <- length(all_adult_bands(cfg)) + 1                 # bands + undefined
+  weeks  <- 104                                              # order of magnitude
+  rows   <- nrow(cfg$scenarios_df) * weeks * cfg$n_draws * (n_pg + n_dose)
+  rows * bytes_per_row / 1024^3
+}
+
+
+run_all_countries <- function(cfg, adult_waning, raw,
+                              workers         = 1L,
+                              keep_by_country = TRUE) {
 
   cs <- cfg$countries_df
+  n  <- nrow(cs)
 
-  results <- map(seq_len(nrow(cs)), function(i) {
-    message("Running ", cs$name[i], " (", cs$iso2[i], ") ",
-            "[", i, "/", nrow(cs), "]")
-    run_country(cfg, cs$name[i], cs$iso2[i], adult_waning, raw,
-                quiet = (i > 1))
-  })
+  one <- function(i) {
+    r <- run_country(cfg, cs$name[i], cs$iso2[i], adult_waning, raw,
+                     quiet = (i > 1))
+    if (keep_by_country) r else list(submission = r$submission)
+  }
+
+  workers <- max(1L, min(as.integer(workers), n, parallel::detectCores()))
+
+  # Memory, not cores, is what limits this. Each worker holds a whole
+  # country's submission while it builds it - roughly 500 MB at 16
+  # scenarios and 100 draws - and the parent is meanwhile accumulating
+  # every country it has already been handed. Ask for more workers than
+  # RAM allows and a worker is killed mid-flight, which surfaces as
+  # "error reading from connection" and says nothing about memory.
+  if (workers > 1L) {
+    per_gb  <- estimate_country_gb(cfg)
+    free_gb <- free_ram_gb()
+    if (is.finite(free_gb)) {
+      # The parent ends up holding every country; workers add their own
+      # copy on top. Leave a third of free memory as headroom for the
+      # copies rbindlist makes.
+      budget <- free_gb * 0.66 - per_gb * n
+      fit    <- max(1L, floor(budget / per_gb))
+      if (fit < workers) {
+        message("Limiting to ", fit, " worker(s): ", signif(free_gb, 3),
+                " GB free, ~", signif(per_gb, 2), " GB per country, and the ",
+                "result itself is ~", signif(per_gb * n, 3), " GB.")
+        workers <- fit
+      }
+    }
+  }
+
+  if (workers == 1L) {
+    results <- lapply(seq_len(n), function(i) {
+      message("Running ", cs$name[i], " (", cs$iso2[i], ") [", i, "/", n, "]")
+      one(i)
+    })
+  } else {
+    message("Running ", n, " countries on ", workers, " workers")
+    cl <- parallel::makePSOCKcluster(workers)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+
+    # PSOCK workers start empty: they need the package namespaces and the
+    # model's own functions before they can run a country.
+    parallel::clusterEvalQ(cl, {
+      suppressMessages({
+        library(dplyr); library(tidyr); library(purrr); library(tibble)
+        library(lubridate); library(data.table); library(yaml)
+      })
+      for (f in c("utils", "validate", "simulate_margins", "apply_scenario",
+                  "adult_protection", "scenario_engine", "load_data",
+                  "format_submission", "build_doses", "run_model")) {
+        source(file.path("R", paste0(f, ".R")))
+      }
+      NULL
+    })
+    parallel::clusterExport(cl, c("cfg", "cs", "adult_waning", "raw",
+                                  "one", "keep_by_country"),
+                            envir = environment())
+    results <- parallel::parLapplyLB(cl, seq_len(n), one)
+  }
   names(results) <- cs$iso2
 
-  list(
-    submission = bind_rows(map(results, "submission")) %>% as.data.table(),
-    by_country = results
-  )
+  submission <- rbindlist(lapply(results, `[[`, "submission"))
+  if (!keep_by_country) results <- NULL
+
+  list(submission = submission, by_country = results)
 }

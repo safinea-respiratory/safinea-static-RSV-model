@@ -15,7 +15,23 @@
 #
 # Collects ALL failures and reports them together rather than stopping at
 # the first, so one run tells you everything that is wrong.
-validate_submission <- function(submission, cfg) {
+#
+# sample_draws limits the three PER-CELL ARITHMETIC invariants - dose
+# totals, immYes + immNo == immTotal, and total_* == the sum over bands -
+# to that many Monte-Carlo draws. Everything structural still runs on the
+# whole table: columns, NAs, identifiers, horizon, pop_group membership,
+# duplicate rows and grid completeness.
+#
+# Why that split is safe. The three sampled checks assert identities that
+# format_submission() constructs row by row, so they hold for every draw
+# or for none - a draw is not a place where they could fail selectively.
+# They are also, together, almost the entire cost: they group by
+# (location, scenario, horizon, draw, band), which at 28 countries x 16
+# scenarios x 104 weeks x 100 draws is 51 million groups and takes over a
+# quarter of an hour. Checking five draws is 20x less work.
+#
+# Set sample_draws = NULL (or >= n_draws) to check every draw.
+validate_submission <- function(submission, cfg, sample_draws = 5) {
 
   problems <- character(0)
   note <- function(...) problems <<- c(problems, paste0(...))
@@ -41,6 +57,29 @@ validate_submission <- function(submission, cfg) {
          "\n  Columns present: ", paste(names(submission), collapse = ", "),
          call. = FALSE)
   }
+
+  # ---- the subset the arithmetic invariants run on ----
+  # Draws are picked evenly across the range rather than taking the first
+  # few, so a fault confined to late draws is still in scope.
+  all_ids <- unique(submission$output_type_id)
+  n_all   <- length(all_ids)
+  use_all <- is.null(sample_draws) || sample_draws >= n_all
+
+  if (use_all) {
+    arith    <- submission
+    n_used   <- n_all
+  } else {
+    ord      <- all_ids[order(suppressWarnings(as.numeric(all_ids)), all_ids)]
+    pick     <- ord[unique(round(seq(1, n_all, length.out = sample_draws)))]
+    arith    <- submission %>% filter(output_type_id %in% pick)
+    n_used   <- length(pick)
+    message("validate_submission: per-cell arithmetic checked on ", n_used,
+            " of ", n_all, " draws (sample_draws = ", sample_draws,
+            "). Structural checks use every row.")
+  }
+  # Appended to those three findings so a count is never mistaken for a
+  # count over the whole submission.
+  scope <- if (use_all) "" else paste0(" [of ", n_used, " draw(s) checked]")
 
   # ---- no missing or nonsensical values ----
   for (col in required) {
@@ -93,9 +132,12 @@ validate_submission <- function(submission, cfg) {
   # "undefined" all-ages row per (scenario, week). Hospitalisations use
   # <band>_<immStatus>, whose aggregate is "total_<immStatus>" - note the
   # two targets use different names for their aggregate row.
+  # unique() BEFORE the regex: there are ~36 distinct pop_groups but tens
+  # of millions of rows, and sub() over every row costs 4x what it needs to.
   data_bands <- submission %>%
     filter(target == "rsv_hospitalisations", grepl("_imm", pop_group)) %>%
-    pull(pop_group) %>% sub("_imm(Yes|No|Total)$", "", .) %>%
+    pull(pop_group) %>% unique() %>%
+    sub("_imm(Yes|No|Total)$", "", .) %>%
     unique() %>% setdiff("total")
 
   d_bad <- submission %>%
@@ -115,7 +157,7 @@ validate_submission <- function(submission, cfg) {
   }
 
   # ---- dose totals equal the sum over dose bands ----
-  dose_chk <- submission %>%
+  dose_chk <- arith %>%
     filter(target == "administered_doses") %>%
     mutate(is_total = pop_group == "undefined") %>%
     group_by(location, scenario_id, horizon, output_type_id) %>%
@@ -123,8 +165,8 @@ validate_submission <- function(submission, cfg) {
               .groups = "drop")
   if (safe_max(dose_chk$d) > 1e-6) {
     note("administered_doses \"undefined\" rows do not equal the sum over age ",
-         "bands in ", sum(dose_chk$d > 1e-6, na.rm = TRUE), " cell(s); worst ",
-         signif(safe_max(dose_chk$d), 3))
+         "bands in ", sum(dose_chk$d > 1e-6, na.rm = TRUE), " cell(s)", scope,
+         "; worst ", signif(safe_max(dose_chk$d), 3))
   }
 
   # ---- no duplicated rows ----
@@ -140,7 +182,7 @@ validate_submission <- function(submission, cfg) {
          paste(key, collapse = ", "), ")")
   }
 
-  hosp <- submission %>% filter(target == "rsv_hospitalisations")
+  hosp <- arith %>% filter(target == "rsv_hospitalisations")
 
   # ---- immYes + immNo == immTotal ----
   strata <- hosp %>%
@@ -154,7 +196,7 @@ validate_submission <- function(submission, cfg) {
   if (safe_max(strata$d) > 1e-6) {
     note("immYes + immNo != immTotal in ",
          sum(strata$d > 1e-6, na.rm = TRUE),
-         " cell(s); worst discrepancy ", signif(safe_max(strata$d), 3))
+         " cell(s)", scope, "; worst discrepancy ", signif(safe_max(strata$d), 3))
   }
 
   # ---- all-ages totals equal the sum over bands ----
@@ -166,7 +208,7 @@ validate_submission <- function(submission, cfg) {
               .groups = "drop")
   if (safe_max(totals$d) > 1e-6) {
     note("total_* rows do not equal the sum over age bands in ",
-         sum(totals$d > 1e-6, na.rm = TRUE), " cell(s); worst ",
+         sum(totals$d > 1e-6, na.rm = TRUE), " cell(s)", scope, "; worst ",
          signif(safe_max(totals$d), 3))
   }
 

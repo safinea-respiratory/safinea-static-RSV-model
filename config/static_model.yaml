@@ -44,32 +44,32 @@
 countries:
   - {name: "Austria",        iso2: "AT"}
   - {name: "Belgium",        iso2: "BE"}
-  # - {name: "Bulgaria",       iso2: "BG"}
-  # - {name: "Cyprus",         iso2: "CY"}
-  # - {name: "Czech Republic", iso2: "CZ"}
-  # - {name: "Germany",        iso2: "DE"}
-  # - {name: "Denmark",        iso2: "DK"}
-  # - {name: "Estonia",        iso2: "EE"}
-  # - {name: "Greece",         iso2: "EL"}
-  # - {name: "Spain",          iso2: "ES"}
-  # - {name: "Finland",        iso2: "FI"}
-  # - {name: "France",         iso2: "FR"}
-  # - {name: "Croatia",        iso2: "HR"}
-  # - {name: "Hungary",        iso2: "HU"}
-  # - {name: "Ireland",        iso2: "IE"}
-  # - {name: "Italy",          iso2: "IT"}
-  # - {name: "Lithuania",      iso2: "LT"}
-  # - {name: "Luxembourg",     iso2: "LU"}
-  # - {name: "Latvia",         iso2: "LV"}
-  # - {name: "Malta",          iso2: "MT"}
-  # - {name: "Netherlands",    iso2: "NL"}
-  # - {name: "Norway",         iso2: "NO"}
-  # - {name: "Poland",         iso2: "PL"}
-  # - {name: "Portugal",       iso2: "PT"}
-  # - {name: "Romania",        iso2: "RO"}
-  # - {name: "Sweden",         iso2: "SE"}
-  # - {name: "Slovenia",       iso2: "SI"}
-  # - {name: "Slovakia",       iso2: "SK"}
+  - {name: "Bulgaria",       iso2: "BG"}
+  - {name: "Cyprus",         iso2: "CY"}
+  - {name: "Czech Republic", iso2: "CZ"}
+  - {name: "Germany",        iso2: "DE"}
+  - {name: "Denmark",        iso2: "DK"}
+  - {name: "Estonia",        iso2: "EE"}
+  - {name: "Greece",         iso2: "EL"}
+  - {name: "Spain",          iso2: "ES"}
+  - {name: "Finland",        iso2: "FI"}
+  - {name: "France",         iso2: "FR"}
+  - {name: "Croatia",        iso2: "HR"}
+  - {name: "Hungary",        iso2: "HU"}
+  - {name: "Ireland",        iso2: "IE"}
+  - {name: "Italy",          iso2: "IT"}
+  - {name: "Lithuania",      iso2: "LT"}
+  - {name: "Luxembourg",     iso2: "LU"}
+  - {name: "Latvia",         iso2: "LV"}
+  - {name: "Malta",          iso2: "MT"}
+  - {name: "Netherlands",    iso2: "NL"}
+  - {name: "Norway",         iso2: "NO"}
+  - {name: "Poland",         iso2: "PL"}
+  - {name: "Portugal",       iso2: "PT"}
+  - {name: "Romania",        iso2: "RO"}
+  - {name: "Sweden",         iso2: "SE"}
+  - {name: "Slovenia",       iso2: "SI"}
+  - {name: "Slovakia",       iso2: "SK"}
 
 
 # ============================================================ #
@@ -217,8 +217,8 @@ adult_vaccination:
   #             "uniform" = equal increment each week.
   #
   campaigns:
-    - start:   "2026-10-04"
-      end:     "2026-10-04"
+    - start:   "2026-11-01"
+      end:     "2026-11-01"
       share:   1.0
       profile: "uniform"
 
@@ -392,6 +392,6 @@ epi_burden_file: "data/epidemiological/hospitalburden_agegroups_2seasons.csv"
 # value AFTER the window start discards the entire age-stratified table
 # and the sampler has nothing to draw from. Keep it at or before the
 # burden window start; it is checked at load.
-n_draws:    5
+n_draws:    100
 mc_seed:    123
 data_start: "2026-08-01"

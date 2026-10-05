@@ -195,6 +195,28 @@ validate_scenarios <- function(cfg) {
     }
   }
 
+  # A scenario naming a waning variant that is not defined would
+  # otherwise fail deep in the engine, after the sampler has run.
+  known <- names(cfg$adult$waning_variants)
+  bad_w <- setdiff(unique(sc$waning), known)
+  if (length(bad_w) > 0) {
+    stop("scenarios reference undefined waning variant(s): ",
+         paste(bad_w, collapse = ", "),
+         "
+  Defined under adult_vaccination.waning_variants: ",
+         paste(known, collapse = ", "), call. = FALSE)
+  }
+  absent_f <- Filter(function(v) !file.exists(cfg$adult$waning_variants[[v]]),
+                     unique(c("default", sc$waning)))
+  if (length(absent_f) > 0) {
+    stop("waning variant file(s) not found:
+  ",
+         paste(vapply(absent_f, function(v)
+           paste0(v, ": ", cfg$adult$waning_variants[[v]]), character(1)),
+           collapse = "
+  "), call. = FALSE)
+  }
+
   # A scenario asking for adult coverage with no bands to apply it to
   # would silently have no effect.
   empty_bands <- vapply(sc$adult_age_groups, length, integer(1)) == 0

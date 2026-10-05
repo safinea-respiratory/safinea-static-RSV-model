@@ -122,6 +122,16 @@ load_config <- function(path = "config/static_model.yaml") {
     eligible_age_groups = unlist(adu$eligible_age_groups),
     waning_curves_path  = adu$waning_curves,
     ve_target           = adu$ve_target,
+
+    # Named waning variants, so a scenario can ask for a different
+    # assumption about how fast protection decays while changing nothing
+    # else. The programme-wide waning_curves file is always available as
+    # "default", whether or not waning_variants names it.
+    waning_variants     = {
+      v <- lapply(adu$waning_variants, as.character)
+      if (is.null(v[["default"]])) v[["default"]] <- adu$waning_curves
+      v
+    },
     ve_beyond_curve     = adu$ve_beyond_curve,
     campaigns           = campaigns,
     baseline_coverage   = adu$baseline_coverage
@@ -140,6 +150,12 @@ load_config <- function(path = "config/static_model.yaml") {
     id             = vapply(cfg$scenarios, function(s) as.character(s$id), character(1)),
     infant_uptake  = vapply(cfg$scenarios, function(s) as.numeric(s$infant_uptake), numeric(1)),
     adult_coverage = vapply(cfg$scenarios, function(s) as.numeric(s$adult_coverage), numeric(1)),
+    # Which waning variant this scenario assumes. Absent means "default",
+    # so an existing config keeps behaving exactly as it did.
+    waning = vapply(cfg$scenarios, function(s) {
+      if (is.null(s$waning)) "default" else as.character(s$waning)
+    }, character(1)),
+
     adult_age_groups = lapply(cfg$scenarios, function(s) {
       if (is.null(s$adult_age_groups)) cfg$adult$eligible_age_groups
       else unlist(s$adult_age_groups)
@@ -147,6 +163,17 @@ load_config <- function(path = "config/static_model.yaml") {
   )
 
   cfg
+}
+
+
+# Load every waning variant the scenarios actually use, keyed by name.
+#
+# One ensemble per variant, not per scenario: scenarios sharing a variant
+# share the loaded curves, and a variant nothing references is not read
+# at all.
+load_waning_variants <- function(cfg, n_draws) {
+  used <- unique(c("default", cfg$scenarios_df$waning))
+  setNames(lapply(used, function(v) load_waning_curves(cfg, n_draws, v)), used)
 }
 
 
@@ -315,13 +342,22 @@ load_population_data <- function(cfg, country_iso2, raw) {
 #
 # Returns a data.frame(sample, month, ve) where `sample` is 1..n_draws
 # and `ve` is the column named by cfg$adult$ve_target.
-load_waning_curves <- function(cfg, n_draws) {
+load_waning_curves <- function(cfg, n_draws, variant = "default") {
 
-  path      <- cfg$adult$waning_curves_path
+  known <- names(cfg$adult$waning_variants)
+  if (!variant %in% known) {
+    stop("Unknown waning variant \"", variant, "\". Defined: ",
+         paste(known, collapse = ", "),
+         "
+  Add it under adult_vaccination.waning_variants.",
+         call. = FALSE)
+  }
+  path      <- cfg$adult$waning_variants[[variant]]
   ve_target <- cfg$adult$ve_target
 
   if (!file.exists(path)) {
-    stop("Adult waning curve file not found: ", path, call. = FALSE)
+    stop("Waning curve file for variant \"", variant, "\" not found: ", path,
+         call. = FALSE)
   }
 
   curves <- read.csv(path)

@@ -263,13 +263,25 @@ compute_scenario_impact <- function(submission, cfg, raw) {
 # bars on the plot are Monte-Carlo uncertainty. Different quantities.
 expected_reduction <- function(cfg, week_season) {
 
-  curves <- read.csv(cfg$adult$waning_curves_path)
-  ve_col <- curves[[cfg$adult$ve_target]]
-  max_m  <- max(curves$month)
+  # One curve set per waning variant: the band is coverage x mean VE, and
+  # a variant is precisely a different VE curve, so a faster-waning
+  # scenario must be drawn against its own.
+  curve_cache <- new.env(parent = emptyenv())
+  curves_for <- function(v) {
+    if (is.null(curve_cache[[v]])) {
+      curve_cache[[v]] <- read.csv(cfg$adult$waning_variants[[v]])
+    }
+    curve_cache[[v]]
+  }
 
-  mean_ve <- function(m) {
-    m <- min(m, max_m)
-    v <- ve_col[curves$month == m]
+  # The curve set is an ARGUMENT, not a closed-over variable. Reassigning
+  # `curves` in the scenario loop would not reach a mean_ve() that closed
+  # over the outer one - it would silently keep using the default and
+  # every variant would be drawn with the same band.
+  mean_ve <- function(m, cur) {
+    ve <- cur[[cfg$adult$ve_target]]
+    m  <- min(m, max(cur$month))
+    v  <- ve[cur$month == m]
     if (length(v) == 0) {
       stop("The waning file has no month ", m, ", needed for the expected ",
            "reduction band.", call. = FALSE)
@@ -291,14 +303,16 @@ expected_reduction <- function(cfg, week_season) {
     cv <- sc$adult_coverage[i]
     if (cv <= 0) return(tibble())
 
+    cur <- curves_for(sc$waning[i])
+
     map_dfr(seq_len(nrow(ordered)), function(k) {
       lo_m <- 12L * ordered$idx[k]
       hi_m <- 12L * (ordered$idx[k] + 1L)
       tibble(scen = sc$id[i], season = ordered$season[k],
              lo_month = lo_m, hi_month = hi_m,
-             lo       = -100 * cv * mean_ve(lo_m),   # freshest, most reduction
-             hi       = -100 * cv * mean_ve(hi_m),   # oldest, least reduction
-             expected = -100 * cv * (mean_ve(lo_m) + mean_ve(hi_m)) / 2)
+             lo       = -100 * cv * mean_ve(lo_m, cur),   # freshest, most reduction
+             hi       = -100 * cv * mean_ve(hi_m, cur),   # oldest, least reduction
+             expected = -100 * cv * (mean_ve(lo_m, cur) + mean_ve(hi_m, cur)) / 2)
     })
   })
 }

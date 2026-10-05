@@ -62,7 +62,9 @@ validate_global_config(cfg, raw)
 
 # Adult waning ensemble: one whole VE-over-time curve per sample.
 # Loaded once and shared across countries.
-adult_waning <- load_waning_curves(cfg, n_draws = cfg$n_draws)
+# One ensemble per waning variant the scenarios use, keyed by name.
+# Scenarios sharing a variant share the loaded curves.
+adult_waning <- load_waning_variants(cfg, n_draws = cfg$n_draws)
 
 
 # ---- Run every configured country ------------------------------

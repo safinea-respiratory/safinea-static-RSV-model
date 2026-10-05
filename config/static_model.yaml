@@ -190,6 +190,27 @@ adult_vaccination:
   # Sample d uses rep d. See data/vaccine/README.md for provenance.
   waning_curves: "data/vaccine/waning_curves.csv"
 
+  # Named waning variants. A scenario picks one with `waning:`; omitting
+  # it means "default", so a config that names none behaves as before.
+  #
+  # A variant changes ONLY how fast protection decays - the campaign,
+  # coverage and eligible bands are whatever the scenario itself says -
+  # so pairing a scenario with each variant isolates the effect of the
+  # waning assumption from everything else.
+  #
+  # Both files are the RespiCompass auxiliary-data ensembles, 500 reps
+  # over months 0-36. They start at the same VE and diverge:
+  #
+  #     month        0      6     12     18     24     36
+  #     default  0.789  0.775  0.714  0.616  0.504  0.303
+  #     faster   0.789  0.714  0.504  0.303  0.166  0.043
+  #
+  # The baseline always uses "default": it describes what actually
+  # happened, so it cannot depend on a hypothetical.
+  waning_variants:
+    default: "data/vaccine/waning_curves.csv"
+    faster:  "data/vaccine/waning_curves_faster.csv"
+
   # Which VE column to use. VE_sev is unconditional protection against
   # RSV hospitalisation, so it is the correct multiplier for this
   # model's hospitalisation target. VE_inf is loaded but unused.
@@ -336,6 +357,37 @@ scenarios:
     infant_uptake:    0.00
     adult_coverage:   0.75
     adult_age_groups: ["80+"]
+
+  # ---------------------------------------------------------------- #
+  #  FASTER WANING - the 50 % set repeated under the faster ensemble.
+  #  Identical in every other respect, so the difference from A.*-50
+  #  is the waning assumption and nothing else.
+  # ---------------------------------------------------------------- #
+  - id: "A.1-50-fast"                      # 60+ age group, 50% uptake, faster waning
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["60-64", "65-69", "70-74", "75-79", "80+"]
+    waning:           "faster"
+  - id: "A.2-50-fast"                      # 65+ age group, 50% uptake, faster waning
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["65-69", "70-74", "75-79", "80+"]
+    waning:           "faster"
+  - id: "A.3-50-fast"                      # 70+ age group, 50% uptake, faster waning
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["70-74", "75-79", "80+"]
+    waning:           "faster"
+  - id: "A.4-50-fast"                      # 75+ age group, 50% uptake, faster waning
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["75-79", "80+"]
+    waning:           "faster"
+  - id: "A.5-50-fast"                      # 80+ age group, 50% uptake, faster waning
+    infant_uptake:    0.00
+    adult_coverage:   0.50
+    adult_age_groups: ["80+"]
+    waning:           "faster"
 
 
 

@@ -127,6 +127,25 @@ assert_coverage_linear <- function(weeks, waning, cfg, unit, tol = 1e-9) {
 scenario_submission <- function(baseline_df, cfg, adult_waning, ve_draws,
                                 infant_base) {
 
+  # A named list of ensembles, one per waning variant. A bare data frame
+  # is still accepted and means "every scenario uses this one", which is
+  # what the single-ensemble callers pass.
+  if (is.data.frame(adult_waning)) adult_waning <- list(default = adult_waning)
+
+  # Checked here, before the sampler's output is touched, so a missing
+  # ensemble fails immediately rather than part-way through the loop.
+  variants <- unique(cfg$scenarios_df$waning)
+  absent   <- setdiff(c("default", variants), names(adult_waning))
+  if (length(absent) > 0) {
+    stop("No waning ensemble supplied for variant(s): ",
+         paste(absent, collapse = ", "),
+         "
+  Supplied: ", paste(names(adult_waning), collapse = ", "),
+         "
+  Load them with load_waning_variants(cfg, n_draws).",
+         call. = FALSE)
+  }
+
   W <- sort(unique(baseline_df$target_end_date))
   A <- sort(unique(baseline_df$age_group))
   D <- sort(unique(baseline_df$sample))
@@ -135,9 +154,12 @@ scenario_submission <- function(baseline_df, cfg, adult_waning, ve_draws,
   arr <- function(df, col, label) arrayise(df, col, W, A, D, label)
 
   # ---- the counterfactual the scenarios are applied to ----
+  # Always the DEFAULT variant: the baseline describes what actually
+  # happened, so it cannot depend on a hypothetical waning assumption
+  # that only some scenarios make.
   prot_base <- bind_rows(
     scale_infant_protection(infant_base, cfg$infant$baseline_uptake),
-    build_adult_protection(W, adult_waning, cfg$adult$campaigns,
+    build_adult_protection(W, adult_waning[["default"]], cfg$adult$campaigns,
                            cfg$adult$baseline_coverage,
                            cfg$adult$ve_beyond_curve,
                            cfg$adult$eligible_age_groups))
@@ -150,11 +172,18 @@ scenario_submission <- function(baseline_df, cfg, adult_waning, ve_draws,
   check_backcalc_denominator(data.frame(denom = as.vector(denom)))
   no_vax <- X / denom
 
-  # ---- one adult curve, reused by every scenario ----
-  unit <- unit_adult_protection(W, adult_waning, cfg)
-  assert_coverage_linear(W, adult_waning, cfg, unit)
-  uC <- arr(unit, "coverage",    "unit adult protection")
-  uR <- arr(unit, "residual_ve", "unit adult protection")
+  # ---- one adult curve PER WANING VARIANT ----
+  # Coverage linearity makes a single unit curve serve every coverage
+  # level and band set, but NOT a different waning assumption: residual
+  # VE is exactly what a variant changes. So one unit curve per variant
+  # the scenarios use, which is still far fewer than one per scenario.
+  uC <- uR <- setNames(vector("list", length(variants)), variants)
+  for (v in variants) {
+    u <- unit_adult_protection(W, adult_waning[[v]], cfg)
+    assert_coverage_linear(W, adult_waning[[v]], cfg, u)
+    uC[[v]] <- arr(u, "coverage",    paste0("unit adult protection (", v, ")"))
+    uR[[v]] <- arr(u, "residual_ve", paste0("unit adult protection (", v, ")"))
+  }
 
   # ---- key skeleton ----
   # The key columns are IDENTICAL for every scenario, so the whole table
@@ -209,10 +238,11 @@ scenario_submission <- function(baseline_df, cfg, adult_waning, ve_draws,
     mask <- array(0, c(nW, nA, nD))
     hit  <- match(sc$adult_age_groups[[i]], A)
     if (length(hit)) mask[, hit, ] <- 1
-    acov <- sc$adult_coverage[i] * uC * mask
+    v    <- sc$waning[i]
+    acov <- sc$adult_coverage[i] * uC[[v]] * mask
 
     cov <- icov + acov
-    prt <- icov * irve + acov * uR
+    prt <- icov * irve + acov * uR[[v]]
     rve <- ifelse(cov > 0, prt / cov, 0)
 
     yes <- (1 - rve) * cov * no_vax

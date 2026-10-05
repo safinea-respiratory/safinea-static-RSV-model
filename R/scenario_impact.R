@@ -303,7 +303,7 @@ expected_reduction <- function(cfg, week_season) {
     cv <- sc$adult_coverage[i]
     if (cv <= 0) return(tibble())
 
-    cur <- curves_for(sc$waning[i])
+    cur <- curves_for(sc$adult_waning_curve[i])
 
     map_dfr(seq_len(nrow(ordered)), function(k) {
       lo_m <- 12L * ordered$idx[k]

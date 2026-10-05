@@ -149,7 +149,7 @@ run_country <- function(cfg, country_name, country_iso2,
     lapply(seq_len(nrow(sc)), function(i) {
       build_adult_protection(weeks,
                              if (is.data.frame(adult_waning)) adult_waning
-                             else adult_waning[[sc$waning[i]]],
+                             else adult_waning[[sc$adult_waning_curve[i]]],
                              cfg$adult$campaigns,
                              sc$adult_coverage[i], cfg$adult$ve_beyond_curve,
                              sc$adult_age_groups[[i]])

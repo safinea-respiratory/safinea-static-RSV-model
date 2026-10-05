@@ -190,7 +190,8 @@ adult_vaccination:
   # Sample d uses rep d. See data/vaccine/README.md for provenance.
   waning_curves: "data/vaccine/waning_curves.csv"
 
-  # Named waning variants. A scenario picks one with `waning:`; omitting
+  # Named waning variants. A scenario picks one with `adult_waning_curve:`;
+  # omitting
   # it means "default", so a config that names none behaves as before.
   #
   # A variant changes ONLY how fast protection decays - the campaign,
@@ -359,35 +360,28 @@ scenarios:
     adult_age_groups: ["80+"]
 
   # ---------------------------------------------------------------- #
-  #  FASTER WANING - the 50 % set repeated under the faster ensemble.
-  #  Identical in every other respect, so the difference from A.*-50
-  #  is the waning assumption and nothing else.
+  #  FASTER WANING
+  #
+  #  B.3 is A.3 under the faster ensemble: the same 70+ target group at
+  #  the same three uptake levels, differing only in how fast protection
+  #  decays. Reading B.3-n against A.3-n isolates the waning assumption
+  #  from everything else.
   # ---------------------------------------------------------------- #
-  - id: "A.1-50-fast"                      # 60+ age group, 50% uptake, faster waning
-    infant_uptake:    0.00
-    adult_coverage:   0.50
-    adult_age_groups: ["60-64", "65-69", "70-74", "75-79", "80+"]
-    waning:           "faster"
-  - id: "A.2-50-fast"                      # 65+ age group, 50% uptake, faster waning
-    infant_uptake:    0.00
-    adult_coverage:   0.50
-    adult_age_groups: ["65-69", "70-74", "75-79", "80+"]
-    waning:           "faster"
-  - id: "A.3-50-fast"                      # 70+ age group, 50% uptake, faster waning
-    infant_uptake:    0.00
-    adult_coverage:   0.50
-    adult_age_groups: ["70-74", "75-79", "80+"]
-    waning:           "faster"
-  - id: "A.4-50-fast"                      # 75+ age group, 50% uptake, faster waning
-    infant_uptake:    0.00
-    adult_coverage:   0.50
-    adult_age_groups: ["75-79", "80+"]
-    waning:           "faster"
-  - id: "A.5-50-fast"                      # 80+ age group, 50% uptake, faster waning
-    infant_uptake:    0.00
-    adult_coverage:   0.50
-    adult_age_groups: ["80+"]
-    waning:           "faster"
+  - id: "B.3-25"                           # Fast waning, 70+ age group, 25% uptake
+    infant_uptake:      0.00
+    adult_coverage:     0.25
+    adult_age_groups:   ["70-74", "75-79", "80+"]
+    adult_waning_curve: "faster"
+  - id: "B.3-50"                           # Fast waning, 70+ age group, 50% uptake
+    infant_uptake:      0.00
+    adult_coverage:     0.50
+    adult_age_groups:   ["70-74", "75-79", "80+"]
+    adult_waning_curve: "faster"
+  - id: "B.3-75"                           # Fast waning, 70+ age group, 75% uptake
+    infant_uptake:      0.00
+    adult_coverage:     0.75
+    adult_age_groups:   ["70-74", "75-79", "80+"]
+    adult_waning_curve: "faster"
 
 
 

@@ -134,7 +134,7 @@ scenario_submission <- function(baseline_df, cfg, adult_waning, ve_draws,
 
   # Checked here, before the sampler's output is touched, so a missing
   # ensemble fails immediately rather than part-way through the loop.
-  variants <- unique(cfg$scenarios_df$waning)
+  variants <- unique(cfg$scenarios_df$adult_waning_curve)
   absent   <- setdiff(c("default", variants), names(adult_waning))
   if (length(absent) > 0) {
     stop("No waning ensemble supplied for variant(s): ",
@@ -238,7 +238,7 @@ scenario_submission <- function(baseline_df, cfg, adult_waning, ve_draws,
     mask <- array(0, c(nW, nA, nD))
     hit  <- match(sc$adult_age_groups[[i]], A)
     if (length(hit)) mask[, hit, ] <- 1
-    v    <- sc$waning[i]
+    v    <- sc$adult_waning_curve[i]
     acov <- sc$adult_coverage[i] * uC[[v]] * mask
 
     cov <- icov + acov

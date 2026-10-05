@@ -198,7 +198,7 @@ validate_scenarios <- function(cfg) {
   # A scenario naming a waning variant that is not defined would
   # otherwise fail deep in the engine, after the sampler has run.
   known <- names(cfg$adult$waning_variants)
-  bad_w <- setdiff(unique(sc$waning), known)
+  bad_w <- setdiff(unique(sc$adult_waning_curve), known)
   if (length(bad_w) > 0) {
     stop("scenarios reference undefined waning variant(s): ",
          paste(bad_w, collapse = ", "),
@@ -207,7 +207,7 @@ validate_scenarios <- function(cfg) {
          paste(known, collapse = ", "), call. = FALSE)
   }
   absent_f <- Filter(function(v) !file.exists(cfg$adult$waning_variants[[v]]),
-                     unique(c("default", sc$waning)))
+                     unique(c("default", sc$adult_waning_curve)))
   if (length(absent_f) > 0) {
     stop("waning variant file(s) not found:
   ",

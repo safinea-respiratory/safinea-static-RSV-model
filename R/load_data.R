@@ -151,9 +151,12 @@ load_config <- function(path = "config/static_model.yaml") {
     infant_uptake  = vapply(cfg$scenarios, function(s) as.numeric(s$infant_uptake), numeric(1)),
     adult_coverage = vapply(cfg$scenarios, function(s) as.numeric(s$adult_coverage), numeric(1)),
     # Which waning variant this scenario assumes. Absent means "default",
-    # so an existing config keeps behaving exactly as it did.
-    waning = vapply(cfg$scenarios, function(s) {
-      if (is.null(s$waning)) "default" else as.character(s$waning)
+    # so an existing config keeps behaving exactly as it did. Named for
+    # the ADULT programme specifically - the infant programme has waning
+    # of its own, and this does not touch it.
+    adult_waning_curve = vapply(cfg$scenarios, function(s) {
+      if (is.null(s$adult_waning_curve)) "default"
+      else as.character(s$adult_waning_curve)
     }, character(1)),
 
     adult_age_groups = lapply(cfg$scenarios, function(s) {
@@ -172,7 +175,7 @@ load_config <- function(path = "config/static_model.yaml") {
 # share the loaded curves, and a variant nothing references is not read
 # at all.
 load_waning_variants <- function(cfg, n_draws) {
-  used <- unique(c("default", cfg$scenarios_df$waning))
+  used <- unique(c("default", cfg$scenarios_df$adult_waning_curve))
   setNames(lapply(used, function(v) load_waning_curves(cfg, n_draws, v)), used)
 }
 
